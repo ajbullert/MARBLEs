@@ -1,0 +1,1644 @@
+---
+title: "RNAseq Differential Expression"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+```{r}
+BiocManager::install("Mus.musculus")
+BiocManager::install("enrichplot")
+BiocManager::install("clusterProfiler")
+BiocManager::install("SingleCellExperiment")
+BiocManager::install("TOAST")
+devtools::install('Rtools')
+devtools::install_github('xuranw/MuSiC')
+```
+
+
+The majority of Library packages are listed here. If you want to include more just install and load at the end of the list. If code isn't recognizing the function, it is likely that R didn't load the package that the function comes from.
+#load libraries every time
+```{r}
+library(ggplot2)
+library(devtools)
+library(rgl)
+library(tidyverse)
+library(tidyr)
+library(RColorBrewer)
+library(expss)
+library(dplyr)
+library(BiocManager)
+library(GenomicAlignments)
+library(BiocParallel)
+library(GenomicFeatures)
+library(Rsubread)
+library(DESeq2)
+library(Mus.musculus)
+library(Rsamtools)
+library(pheatmap)
+library(topGO)
+library(gridExtra)
+library(AnnotationDbi)
+library(org.Mm.eg.db)
+library(EnhancedVolcano)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(enrichplot)
+library(clusterProfiler)
+library(pathview)
+library(readr)
+library(MuSiC)
+library(ggpubr)
+library(ggsignif)
+library(rstatix)
+```
+
+Set your working directory and pull in your reference genome to compare your samples to. We will read the gene model from an Ensembl GTF file. Be sure your gene model reflects the same model used in your samples. 
+
+***Define the Gene Model***
+```{r}
+setwd("P:/OEH/Faculty/hlehmler/research/Lehmler Group-Amanda Bullert/MARBLE/rawdata/") #setting directory
+TxDb<-makeTxDbFromUCSC(genome = "mm10",
+                        tablename ="knownGene", 
+                        goldenPath.url = getOption("UCSC.goldenPath.url"))
+```
+
+For additional notes reference "https://www.bioconductor.org/help/course-materials/2016/CSAMA/lab-3-rnaseq/rnaseq_gene_CSAMA2016.html"
+
+The following line produces a GRangesList of all the exons grouped by gene (Lawrence et al. 2013). Each element of the list is a GRanges object of the exons for a gene
+```{r}
+ebg <- exonsBy(TxDb, 
+               by="gene")
+ebg
+g_ids<-names(ebg)
+```
+
+Now that our gene model reference is ready we can load in samples and analyze them accordingly. I found separating by tissue type was easiest. But it can also be helpful to load all samples together. 
+
+***Liver Samples***
+```{r}
+Livinfo<- read.csv(file = "Liv_sample_info.csv", #reading in the sample information
+                   header = T, 
+                   sep = ",")
+
+liv_filenames <- file.path("P:/OEH/Faculty/hlehmler/research/Lehmler Group-Amanda Bullert/MARBLE/rawdata/BAM_files/", 
+                           Livinfo$ï..Sample_ID)
+file.exists(liv_filenames) #a sanity check to make sure you have files named
+```
+
+Next specify the details about how the BAM files should be treated in R, e.g., only process 2 million reads at a time. This can be modified to your computing limitations.
+```{r}
+liv_bamfiles <- BamFileList(liv_filenames, 
+                            yieldSize=2000000)
+seqinfo(liv_bamfiles)
+```
+
+#***Counting***
+```{r}
+
+liv_se <- summarizeOverlaps(features=ebg, #define the gene reference
+                            reads=liv_bamfiles, #samples to be read
+                            mode="Union", 
+                            singleEnd=FALSE, #False indicates samples are paired-end
+                            ignore.strand=FALSE, #not a strand specific experiment
+                            BPPARAM= SerialParam(progressbar = TRUE)) #progress bar shown
+liv_se
+head(assay(liv_se)) #access the counts
+str(metadata(rowRanges(liv_se))) #just to look a the structure of data
+
+```
+*striatum*
+```{r}
+Sinfo<- read.csv(file = "striatum_sample_info.csv", header = T, sep = ",")
+s_filenames <- file.path("P:/OEH/Faculty/hlehmler/research/Lehmler Group-Amanda Bullert/MARBLE/rawdata/BAM_files/", Sinfo$ï..Sample_ID)
+file.exists(s_filenames)
+```
+
+```{r}
+s_bamfiles <- BamFileList(s_filenames, 
+                            yieldSize=2000000)
+seqinfo(s_bamfiles)
+```
+
+```{r}
+s_se <- summarizeOverlaps(features=ebg, 
+                            reads=s_bamfiles,
+                            mode="Union",
+                            singleEnd=FALSE,
+                            ignore.strand=FALSE,
+                            BPPARAM=SerialParam(progressbar = TRUE))
+s_se
+head(assay(s_se))
+str(metadata(rowRanges(s_se)))
+```
+
+```{r}
+pinfo<- read.csv(file = "piriform_sample_info.csv", 
+                 header = T, 
+                 sep = ",")
+p_filenames <- file.path("P:/OEH/Faculty/hlehmler/research/Lehmler Group-Amanda Bullert/MARBLE/rawdata/BAM_files/", 
+                         pinfo$ï..Sample_ID)
+file.exists(p_filenames)
+```
+
+```{r}
+p_bamfiles <- BamFileList(p_filenames, 
+                            yieldSize=2000000)
+seqinfo(p_bamfiles)
+```
+
+```{r}
+p_se <- summarizeOverlaps(features=ebg, 
+                            reads=p_bamfiles,
+                            mode="Union",
+                            singleEnd=FALSE,
+                            ignore.strand=FALSE,
+                            BPPARAM=SerialParam(progressbar = TRUE))
+p_se
+head(assay(p_se))
+str(metadata(rowRanges(p_se)))
+```
+
+#proceed here (no need to recount summarized experiments)
+
+```{r}
+colData(liv_se) #metadata about the samples
+colData(liv_se)<-DataFrame(Livinfo) #take the sample info and assign it as the metadata
+liv_se$Treatment<- as.factor(liv_se$Treatment) #organizing structure of groups
+liv_se$Treatment<- relevel(liv_se$Treatment, 
+                           "Vehicle") # tells the system which group is "control"
+liv_se <- liv_se[ rowSums(assay(liv_se)) >= 10, ] #remove genes that have a total count less than 10, a good prefilter measure
+```
+
+#***Using DeSeq2***
+We can now construct a DESeqDataSet object to formulate a starting point for our analysis. You need to add an appropriate design for analysis
+```{r}
+dds <- DESeqDataSet(liv_se, 
+                    design = ~ Treatment) 
+```
+
+#***Exploratory analysis and visualization***
+*transformations*
+The variance stabilizing transformation (VST) a goal of stablizing the variance across the range of values. produce log2-like values for high counts. 
+```{r}
+L_vsd <- vst(dds)
+```
+
+Now for visuals, ploat a principal components analysis (PCA) using  ggplot2
+```{r}
+L_data <- plotPCA(L_vsd, 
+                  intgroup ="Treatment", 
+                  returnData=TRUE)
+
+L_percentVar <- round(100 * attr(L_data, 
+                                 "percentVar"))
+```
+
+```{r}
+ggplot(L_data, aes(PC1, 
+                   PC2, 
+                   color=Treatment)) + 
+  stat_ellipse(aes(color= Treatment))+
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",
+              L_percentVar[1],
+              "% variance")) +
+  ylab(paste0("PC2: ",
+              L_percentVar[2],
+              "% variance"))
+```
+#Liver results
+#***Differential Expression***
+Lets run a differential expression pipline using the raw counts
+
+This function will print out a message for the various steps it performs. These are described in more detail in the manual page for DESeq, which can be accessed by typing ?DESeq. Briefly these are: the estimation of size factors (controlling for differences in the sequencing depth of the samples), the estimation of dispersion values for each gene, and fitting a generalized linear model.
+```{r}
+ldds <- DESeq(dds)
+lres1<-results(ldds, name="Treatment_6_vs_Vehicle")
+lres2<-results(ldds, name="Treatment_1_vs_Vehicle")
+lres3<-results(ldds, name="Treatment_0.1_vs_Vehicle")
+```
+Calling results without any arguments will extract the estimated log2 fold changes and p values for the last variable in the design formula. If there are more than 2 levels for this variable, results will extract the results table for a comparison of the last level over the first level. Treatment 6 vs vehicle
+```{r}
+summary(lres1)
+summary(lres2)
+summary(lres3)
+```
+
+expected ratio of false positives in the set with p < .05
+```{r}
+round(sum(!is.na(lres1$pvalue))*.05 / sum(lres1$pvalue < .05, 
+                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
+```
+Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
+```{r}
+sum(lres1$padj < 0.1, 
+    na.rm=TRUE)
+```
+
+#***Annotating results***
+```{r}
+columns(Mus.musculus)
+```
+
+How to assign actual gene names to our counts. Using an annotation package for Mus musculus. 
+```{r}
+lres1$symbol <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(lres1), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+lres2$symbol <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(lres2), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+lres3$symbol <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(lres3), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+```
+
+```{r}
+lres1$TXname <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(lres1), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+lres2$TXname <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(lres2), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+lres3$TXname <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(lres3), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+```
+
+```{r}
+lres1$entrez <- mapIds(Mus.musculus,
+                     keys=row.names(lres1),
+                     column="ENTREZID",
+                     keytype="GENEID",
+                     multiVals="first")
+lres2$entrez <- mapIds(Mus.musculus,
+                     keys=row.names(lres2),
+                     column="ENTREZID",
+                     keytype="GENEID",
+                     multiVals="first")
+lres3$entrez <- mapIds(Mus.musculus,
+                     keys=row.names(lres3),
+                     column="ENTREZID",
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+lres1$Genename <- mapIds(Mus.musculus,
+                     keys=row.names(lres1),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+lres2$Genename <- mapIds(Mus.musculus,
+                     keys=row.names(lres2),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+lres3$Genename <- mapIds(Mus.musculus,
+                     keys=row.names(lres3),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+lres1$GOID <- mapIds(Mus.musculus,
+                     keys=row.names(lres1),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+lres2$GOID <- mapIds(Mus.musculus,
+                     keys=row.names(lres2),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+lres3$GOID <- mapIds(Mus.musculus,
+                     keys=row.names(lres3),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+```{r}
+lres1$ensembl <- mapIds(Mus.musculus,
+                     keys=row.names(lres1),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+lres2$ensembl <- mapIds(Mus.musculus,
+                     keys=row.names(lres2),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+lres3$ensembl <- mapIds(Mus.musculus,
+                     keys=row.names(lres3),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+write.csv( as.data.frame(lres1), file="L_veh_6_results.csv" )
+write.csv( as.data.frame(lres2), file="L_veh_1_results.csv" )
+write.csv( as.data.frame(lres3), file="L_veh_0.1_results.csv" )
+```
+
+```{r}
+write_tsv( as.data.frame(lres1), file="L_veh_6_results.tsv" )
+write_tsv( as.data.frame(lres2), file="L_veh_1_results.tsv" )
+write_tsv( as.data.frame(lres3), file="L_veh_0.1_results.tsv" )
+```
+
+```{r}
+L_resOrdered1 <- lres1[order(lres1$padj),] #reorder the genes based on significance
+L_resOrdered2 <- lres2[order(lres2$padj),] #reorder the genes based on significance
+L_resOrdered3 <- lres3[order(lres3$padj),] #reorder the genes based on significance
+```
+
+#***Plotting results***
+Heatmaps are a good way to visualize the most significant genes
+```{r}
+L_mat <- assay(L_vsd)[ head(order(lres1$padj),
+                            30), #top 30 genes 
+                       ]
+#L_mat <- L_mat - rowMeans(L_mat)
+L_df <- as.data.frame(colData(L_vsd)[,
+                                     c("Tissue",
+                                       "Treatment")])
+```
+
+```{r}
+tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/MARBLES/Liver_heatmap.tiff", units="in", width=8, height=5, res=1000)
+pheatmap(L_mat, 
+         annotation_col=L_df,
+         labels_row = L_resOrdered1$symbol,
+         fontsize = 6,
+         scale = "row",
+         main = "Liver Heatmap")
+dev.off()
+```
+
+Do the same analysis for the following tissues.
+
+#***Striatum Tissue***
+
+
+```{r}
+colData(s_se)
+colData(s_se)<-DataFrame(Sinfo)
+s_se$Treatment<- as.factor(s_se$Treatment)
+s_se$Treatment<- relevel(s_se$Treatment, 
+                           "Vehicle")
+s_se <- s_se[ rowSums(assay(s_se)) >= 10, ]
+```
+
+```{r}
+sdds <- DESeqDataSet(s_se, 
+                    design = ~ Treatment)
+```
+
+```{r}
+s_vsd <- vst(sdds)
+```
+
+```{r}
+s_data <- plotPCA(s_vsd, 
+                  intgroup ="Treatment", 
+                  returnData=TRUE)
+s_data
+s_percentVar <- round(100 * attr(s_data, 
+                                 "percentVar"))
+```
+
+```{r}
+ggplot(s_data, aes(PC1, 
+                   PC2, 
+                   color=Treatment)) + 
+  stat_ellipse(aes(color=Treatment))+
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",
+              s_percentVar[1],
+              "% variance")) +
+  ylab(paste0("PC2: ",
+              s_percentVar[2],
+              "% variance"))
+```
+
+```{r}
+sdds <- DESeq(sdds)
+
+sres1<-results(sdds, name="Treatment_6_vs_Vehicle")
+sres2<-results(sdds, name="Treatment_1_vs_Vehicle")
+sres3<-results(sdds, name="Treatment_0.1_vs_Vehicle")
+```
+Calling results without any arguments will extract the estimated log2 fold changes and p values for the last variable in the design formula. If there are more than 2 levels for this variable, results will extract the results table for a comparison of the last level over the first level. Treatment 6 vs vehicle
+```{r}
+summary(sres1)
+summary(sres2)
+summary(sres3)
+```
+
+expected ratio of false positives in the set with p < .05
+```{r}
+round(sum(!is.na(sres1$pvalue))*.05 / sum(sres1$pvalue < .05, 
+                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
+```
+Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
+```{r}
+sum(sres1$padj < 0.1, 
+    na.rm=TRUE)
+```
+
+#***Annotating results***
+```{r}
+columns(Mus.musculus)
+```
+
+How to assign actual gene names to our counts. Using an annotation package for Mus musculus. 
+```{r}
+sres1$symbol <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(sres1), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+sres2$symbol <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(sres2), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+sres3$symbol <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(sres3), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+```
+
+```{r}
+sres1$TXname <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(sres1), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+sres2$TXname <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(sres2), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+sres3$TXname <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(sres3), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+```
+
+```{r}
+sres1$entrez <- mapIds(Mus.musculus,
+                     keys=row.names(sres1),
+                     column="ENTREZID",
+                     keytype="GENEID",
+                     multiVals="first")
+sres2$entrez <- mapIds(Mus.musculus,
+                     keys=row.names(sres2),
+                     column="ENTREZID",
+                     keytype="GENEID",
+                     multiVals="first")
+sres3$entrez <- mapIds(Mus.musculus,
+                     keys=row.names(sres3),
+                     column="ENTREZID",
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+sres1$Genename <- mapIds(Mus.musculus,
+                     keys=row.names(sres1),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+sres2$Genename <- mapIds(Mus.musculus,
+                     keys=row.names(sres2),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+sres3$Genename <- mapIds(Mus.musculus,
+                     keys=row.names(sres3),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+sres1$GOID <- mapIds(Mus.musculus,
+                     keys=row.names(sres1),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+sres2$GOID <- mapIds(Mus.musculus,
+                     keys=row.names(sres2),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+sres3$GOID <- mapIds(Mus.musculus,
+                     keys=row.names(sres3),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+sres1$ensembl <- mapIds(Mus.musculus,
+                     keys=row.names(sres1),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+sres2$ensembl <- mapIds(Mus.musculus,
+                     keys=row.names(sres2),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+sres3$ensembl <- mapIds(Mus.musculus,
+                     keys=row.names(sres3),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+#exporting striatum results
+```{r}
+write.csv( as.data.frame(sres1), file="S_veh_6_results.csv" )
+write.csv( as.data.frame(sres2), file="S_veh_1_results.csv" )
+write.csv( as.data.frame(sres3), file="S_veh_0.1_results.csv" )
+```
+
+```{r}
+write_tsv( as.data.frame(sres1), file="S_veh_6_results.tsv" )
+write_tsv( as.data.frame(sres2), file="S_veh_1_results.tsv" )
+write_tsv( as.data.frame(sres3), file="S_veh_0.1_results.tsv" )
+```
+
+
+```{r}
+S_resOrdered1 <- sres1[order(sres1$padj),] #reorder the genes based on significance
+S_resOrdered2 <- sres2[order(sres2$padj),] #reorder the genes based on significance
+S_resOrdered3 <- sres3[order(sres3$padj),] #reorder the genes based on significance
+```
+
+#visualization
+```{r}
+s_mat <- assay(s_vsd)[ head(order(sres1$padj),
+                            30), ]
+#s_mat <- s_mat - rowMeans(s_mat)
+s_df <- as.data.frame(colData(s_vsd)[,
+                                     c("Tissue",
+                                       "Treatment")])
+```
+
+```{r}
+tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/MARBLES/Striatum_heatmap.tiff", units="in", width=8, height=5, res=1000)
+pheatmap(s_mat, 
+         annotation_col=s_df,
+         labels_row = S_resOrdered1$symbol,
+         scale = "row",
+         fontsize = 8,
+         main = "Striatum Heatmap")
+dev.off()
+```
+
+#***Piriform Tissue***
+
+```{r}
+colData(p_se)
+colData(p_se)<-DataFrame(pinfo)
+p_se$Treatment<- as.factor(p_se$Treatment)
+p_se$Treatment<- relevel(p_se$Treatment, 
+                           "Vehicle")
+p_se <- p_se[ rowSums(assay(p_se)) >= 10, ]
+```
+
+```{r}
+pdds <- DESeqDataSet(p_se, 
+                    design = ~ Treatment)
+```
+
+```{r}
+p_vsd <- vst(pdds)
+```
+
+```{r}
+p_data <- plotPCA(p_vsd, 
+                  intgroup ="Treatment", 
+                  returnData=TRUE)
+p_percentVar <- round(100 * attr(p_data, 
+                                 "percentVar"))
+```
+
+#Prefrontal PCA
+```{r}
+ggplot(p_data, aes(PC1, 
+                   PC2, 
+                   color=Treatment)) + 
+  stat_ellipse(aes(color=Treatment))+
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",
+             p_percentVar[1],
+              "% variance")) +
+  ylab(paste0("PC2: ",
+              p_percentVar[2],
+              "% variance"))
+```
+
+```{r}
+pdds <- DESeq(pdds)
+pres1<-results(pdds, name="Treatment_6_vs_Vehicle")
+pres2<-results(pdds, name="Treatment_1_vs_Vehicle")
+pres3<-results(pdds, name="Treatment_0.1_vs_Vehicle")
+```
+Calling results without any arguments will extract the estimated log2 fold changes and p values for the last variable in the design formula. If there are more than 2 levels for this variable, results will extract the results table for a comparison of the last level over the first level. Treatment 6 vs vehicle
+```{r}
+summary(pres1)
+summary(pres2)
+summary(pres3)
+```
+
+expected ratio of false positives in the set with p < .05
+```{r}
+round(sum(!is.na(pres1$pvalue))*.05 / sum(pres1$pvalue < .05, 
+                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
+```
+Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
+```{r}
+sum(pres1$padj < 0.1, 
+    na.rm=TRUE)
+```
+
+#***Annotating results***
+```{r}
+columns(Mus.musculus)
+```
+
+How to assign actual gene names to our counts. Using an annotation package for Mus musculus. 
+```{r}
+pres1$symbol <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(pres1), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+pres2$symbol <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(pres2), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+pres3$symbol <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(pres3), #using rownames
+                     column="SYMBOL", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+```
+
+```{r}
+pres1$TXname <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(pres1), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+pres2$TXname <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(pres2), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+pres3$TXname <- mapIds(Mus.musculus, #which annotation package model to use
+                     keys=row.names(pres3), #using rownames
+                     column="TXNAME", #add a column of symbols associated with row.names arguments for the model
+                     keytype="GENEID", #our rownames are gene id's 
+                     multiVals="first")
+
+```
+
+```{r}
+pres1$entrez <- mapIds(Mus.musculus,
+                     keys=row.names(pres1),
+                     column="ENTREZID",
+                     keytype="GENEID",
+                     multiVals="first")
+pres2$entrez <- mapIds(Mus.musculus,
+                     keys=row.names(pres2),
+                     column="ENTREZID",
+                     keytype="GENEID",
+                     multiVals="first")
+pres3$entrez <- mapIds(Mus.musculus,
+                     keys=row.names(pres3),
+                     column="ENTREZID",
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+pres1$Genename <- mapIds(Mus.musculus,
+                     keys=row.names(pres1),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+pres2$Genename <- mapIds(Mus.musculus,
+                     keys=row.names(pres2),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+pres3$Genename <- mapIds(Mus.musculus,
+                     keys=row.names(pres3),
+                     column="GENENAME", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+
+```{r}
+pres1$GOID <- mapIds(Mus.musculus,
+                     keys=row.names(pres1),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+pres2$GOID <- mapIds(Mus.musculus,
+                     keys=row.names(pres2),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+pres3$GOID <- mapIds(Mus.musculus,
+                     keys=row.names(pres3),
+                     column="GO", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+```{r}
+pres1$ensembl <- mapIds(Mus.musculus,
+                     keys=row.names(pres1),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+pres2$ensembl <- mapIds(Mus.musculus,
+                     keys=row.names(pres2),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+pres3$ensembl <- mapIds(Mus.musculus,
+                     keys=row.names(pres3),
+                     column="ENSEMBL", #now add a column for gene names or gene description
+                     keytype="GENEID",
+                     multiVals="first")
+```
+#exporting Prefrontal Cortex Results
+```{r}
+write.csv( as.data.frame(pres1), file="P_veh_6_results.csv" )
+write.csv( as.data.frame(pres2), file="P_veh_1_results.csv" )
+write.csv( as.data.frame(pres3), file="P_veh_0.1_results.csv" )
+```
+
+```{r}
+write_tsv( as.data.frame(pres1), file="P_veh_6_results.tsv" )
+write_tsv( as.data.frame(pres2), file="P_veh_1_results.tsv" )
+write_tsv( as.data.frame(pres3), file="P_veh_0.1_results.tsv" )
+```
+
+```{r}
+P_resOrdered1 <- pres1[order(pres1$padj),] #reorder the genes based on significance
+P_resOrdered2 <- pres2[order(pres2$padj),] #reorder the genes based on significance
+P_resOrdered3 <- pres3[order(pres3$padj),] #reorder the genes based on significance
+```
+
+#visualization
+```{r}
+p_mat <- assay(p_vsd)[ head(order(pres1$padj),
+                            30), ]
+#p_mat <- p_mat - rowMeans(p_mat)
+p_df <- as.data.frame(colData(p_vsd)[,
+                                     c("Tissue",
+                                       "Treatment")])
+```
+
+```{r}
+tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/MARBLES/Prefrontal_cortex_heatmap.tiff", units="in", width=8, height=5, res=1000)
+pheatmap(p_mat, 
+         annotation_col=p_df,
+         labels_row = P_resOrdered1$symbol,
+         scale = "row",
+         fontsize = 8,
+         main = "Prefrontal Cortex Heatmap")
+dev.off()
+```
+
+#***volcano plots***
+```{r}
+tiff(file = 'L_volcano_plot_6vsVeh.tiff', units="in", width=8, height=5, res=1000)
+L1<- EnhancedVolcano(lres1,
+    lab = lres1$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Liver Volcano Plot",
+    xlim = c(-7,7) ,
+    ylim = c(0,18),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+L1
+dev.off()
+L1
+```
+```{r}
+tiff(file = 'L_volcano_plot_1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+L2<- EnhancedVolcano(lres2,
+    lab = lres2$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Liver Volcano Plot",
+    xlim = c(-7,7) ,
+    ylim = c(0,18),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+L2
+dev.off()
+L2
+```
+```{r}
+tiff(file = 'L_volcano_plot_0.1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+L3<- EnhancedVolcano(lres3,
+    lab = lres3$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Liver Volcano Plot",
+    xlim = c(-7,7) ,
+    ylim = c(0,18),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+L3
+dev.off()
+L3
+```
+
+
+```{r}
+tiff(file = 'P_volcano_plot_6vsVeh.tiff', units="in", width=8, height=5, res=1000)
+p1<- EnhancedVolcano(pres1,
+                     lab =pres1$symbol,
+                     x = 'log2FoldChange',
+                     y = 'pvalue',
+                     title = "Prefrontal Cortex Volcano Plot",
+                     xlim = c(-7,7) ,
+                     ylim = c(0,7),
+                     FCcutoff = 1.0,
+                     pCutoff = 0.05,
+                     labSize = 3.0,
+                     colAlpha = 1,
+                     legendLabels=c('Not sig.',
+                                    'Log (base 2) FC',
+                                    'p-value',
+                                    'p-value & Log (base 2) FC'),
+                     legendPosition = 'right',
+                     legendLabSize = 16,
+                     legendIconSize = 5.0,
+                     gridlines.major = FALSE,
+                     gridlines.minor = FALSE,
+                     border = 'full',
+                     borderWidth = 1.0,
+                     borderColour = 'black')
+p1
+dev.off()
+p1
+```
+
+```{r}
+tiff(file = 'P_volcano_plot_1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+p2<- EnhancedVolcano(pres2,
+                     lab = pres2$symbol,
+                     x = 'log2FoldChange',
+                     y = 'pvalue',
+                     title = "Prefrontal Cortex Volcano Plot",
+                     xlim = c(-7,7) ,
+                     ylim = c(0,7),
+                     FCcutoff = 1.0,
+                     pCutoff = 0.05,
+                     labSize = 3.0,
+                     colAlpha = 1,
+                     legendLabels=c('Not sig.',
+                                    'Log (base 2) FC',
+                                    'p-value',
+                                    'p-value & Log (base 2) FC'),
+                     legendPosition = 'right',
+                     legendLabSize = 16,
+                     legendIconSize = 5.0,
+                     gridlines.major = FALSE,
+                     gridlines.minor = FALSE,
+                     border = 'full',
+                     borderWidth = 1.0,
+                     borderColour = 'black')
+p2
+dev.off()
+p2
+```
+```{r}
+tiff(file = 'P_volcano_plot_0.1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+p3<- EnhancedVolcano(pres3,
+                     lab = pres3$symbol,
+                     x = 'log2FoldChange',
+                     y = 'pvalue',
+                     title = "Prefrontal Cortex Volcano Plot",
+                     xlim = c(-7,7) ,
+                     ylim = c(0,7),
+                     FCcutoff = 1.0,
+                     pCutoff = 0.05,
+                     labSize = 3.0,
+                     colAlpha = 1,
+                     legendLabels=c('Not sig.',
+                                    'Log (base 2) FC',
+                                    'p-value',
+                                    'p-value & Log (base 2) FC'),
+                     legendPosition = 'right',
+                     legendLabSize = 16,
+                     legendIconSize = 5.0,
+                     gridlines.major = FALSE,
+                     gridlines.minor = FALSE,
+                     border = 'full',
+                     borderWidth = 1.0,
+                     borderColour = 'black')
+p3
+dev.off()
+p3
+```
+
+
+```{r}
+tiff(file = 'S_volcano_plot_6vsVeh.tiff', units="in", width=8, height=5, res=1000)
+s1<-EnhancedVolcano(sres1,
+    lab = sres1$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Striatum Volcano Plot",
+    xlim = c(-7,7) ,
+    ylim = c(0,7),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+s1
+dev.off()
+s1
+```
+```{r}
+tiff(file = 'S_volcano_plot_1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+s2<-EnhancedVolcano(sres2,
+    lab = sres2$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Striatum Volcano Plot",
+    xlim = c(-7,7) ,
+    ylim = c(0,7),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+s2
+dev.off()
+s2
+```
+```{r}
+tiff(file = 'S_volcano_plot_0.1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+s3<-EnhancedVolcano(sres3,
+    lab = sres3$symbol,
+    x = 'log2FoldChange',
+    y = 'pvalue',
+    title = "Striatum Volcano Plot",
+    xlim = c(-7,7) ,
+    ylim = c(0,7),
+    FCcutoff = 1.0,
+    pCutoff = 0.05,
+    labSize = 3.0,
+    colAlpha = 1,
+    legendLabels=c('Not sig.','Log (base 2) FC','p-value',
+      'p-value & Log (base 2) FC'),
+    legendPosition = 'right',
+    legendLabSize = 16,
+    legendIconSize = 5.0,
+    gridlines.major = FALSE,
+    gridlines.minor = FALSE,
+    border = 'full',
+    borderWidth = 1.0,
+    borderColour = 'black')
+s3
+dev.off()
+s3
+```
+
+#***Gene Ontology***
+```{r}
+L_genelistUp1 <- factor( as.integer(lres1$padj < .1 & lres1$log2FoldChange > 0 ) )
+names(L_genelistUp1) <- lres1$ensembl
+```
+
+```{r}
+myGOdata <- new( "topGOdata",
+   ontology = "BP",
+   allGenes = L_genelistUp1,
+   nodeSize = 10,
+   annot = annFUN.org, mapping = "org.Mm.eg.db", ID= "ensembl" )
+```
+
+```{r}
+goTestResults <- runTest( myGOdata, algorithm = "elim", statistic = "fisher" )
+```
+
+```{r}
+pdf("liv_ontology.pdf", height=8.5, width=11)
+grid.table(GenTable(myGOdata, goTestResults ))
+dev.off()
+```
+
+```{r}
+p_genelistUp <- factor( as.integer(pres1$padj < .1 & pres1$log2FoldChange > 0 ) )
+names(p_genelistUp) <- pres1$ensembl
+```
+
+```{r}
+p_myGOdata <- new( "topGOdata",
+   ontology = "BP",
+   allGenes = p_genelistUp,
+   nodeSize = 10,
+   annot = annFUN.org, mapping = "org.Mm.eg.db", ID= "ensembl" )
+```
+
+```{r}
+p_goTestResults <- runTest( p_myGOdata, algorithm = "elim", statistic = "fisher" )
+```
+
+```{r}
+pdf("piriform_ontology.pdf", height=8.5, width=11)
+grid.table(GenTable(p_myGOdata, p_goTestResults ))
+dev.off()
+```
+
+
+```{r}
+s_genelistUp <- factor( as.integer(sres1$padj < .1 & sres1$log2FoldChange > 0 ) )
+names(s_genelistUp) <- sres1$ensembl
+```
+
+```{r}
+s_myGOdata <- new( "topGOdata",
+   ontology = "BP",
+   allGenes = s_genelistUp,
+   nodeSize = 10,
+   annot = annFUN.org, mapping = "org.Mm.eg.db", ID= "ensembl" )
+```
+
+```{r}
+s_goTestResults <- runTest(s_myGOdata, algorithm = "elim", statistic = "fisher" )
+```
+
+```{r}
+pdf("striatum_ontology.pdf", height=8.5, width=11)
+grid.table(GenTable(s_myGOdata, s_goTestResults ))
+dev.off()
+```
+
+```{r}
+resultFisher <- runTest(myGOdata, algorithm = "classic", statistic = "fisher")
+p_resultFisher <- runTest(p_myGOdata, algorithm = "classic", statistic = "fisher")
+s_resultFisher <- runTest(s_myGOdata, algorithm = "classic", statistic = "fisher")
+```
+#gene enrichment
+
+```{r}
+x<- lres1[order(lres1$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+lgse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Mm.eg.db, 
+             pAdjustMethod = "none")
+
+```
+```{r}
+tiff(file = 'Liver_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
+dot<-dotplot(lgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Liver Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+```{r}
+x<- lres2[order(lres2$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+lgse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Mm.eg.db, 
+             pAdjustMethod = "none")
+
+```
+```{r}
+tiff(file = 'Liver_gene_enrichment_2.tiff', units="in", width=7, height=5, res=1000)
+dot<-dotplot(lgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Liver Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- lres3[order(lres3$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+lgse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Mm.eg.db, 
+             pAdjustMethod = "none")
+
+```
+```{r}
+tiff(file = 'Liver_gene_enrichment_3.tiff', units="in", width=7, height=5, res=1000)
+dot<-dotplot(lgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Liver Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+
+dot
+dev.off()
+dot
+```
+
+
+```{r}
+x<- sres1[order(sres1$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+sgse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Mm.eg.db, 
+             pAdjustMethod = "none")
+```
+```{r}
+tiff(file = 'Striatum_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(sgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Striatum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- sres2[order(sres2$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+sgse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Mm.eg.db, 
+             pAdjustMethod = "none")
+```
+```{r}
+tiff(file = 'Striatum_gene_enrichment_2.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(sgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Striatum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- sres3[order(sres3$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+sgse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Mm.eg.db, 
+             pAdjustMethod = "none")
+```
+```{r}
+tiff(file = 'Striatum_gene_enrichment_3.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(sgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Striatum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+
+```{r}
+x<- pres1[order(pres1$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+pgse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Mm.eg.db, 
+             pAdjustMethod = "none")
+```
+
+```{r}
+tiff(file = 'Prefrontal_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(pgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Prefrontal Cortex Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- pres2[order(pres2$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+pgse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Mm.eg.db, 
+             pAdjustMethod = "none")
+```
+
+```{r}
+tiff(file = 'Prefrontal_gene_enrichment_2.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(pgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Prefrontal Cortex Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+
+```{r}
+x<- pres3[order(pres3$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$ensembl
+head(gene_list)
+```
+
+```{r}
+pgse <- gseGO(geneList=gene_list, 
+             ont ="ALL", 
+             keyType = "ENSEMBL", 
+             nPerm = 10000, 
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = org.Mm.eg.db, 
+             pAdjustMethod = "none")
+```
+
+```{r}
+tiff(file = 'Prefrontal_gene_enrichment_3.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(pgse, showCategory=10, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Prefrontal Cortex Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+#KEGG pathview
+```{r}
+x<- lres1[order(lres1$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$entrez
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "mmu"
+kk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+dotplot(kk2, showCategory = 10, title = "Liver Enriched Pathways" , split=".sign") + facet_grid(.~.sign)
+```
+
+```{r}
+# Produce the native KEGG plot (PNG)
+liver_steroid1 <- pathview(gene.data=gene_list, pathway.id="00140", species = kegg_organism)
+
+```
+#plotting individual genes of interest (Liver)
+Using normalized counts (prebuilt into DESEQ2) which normalizes counts by the estimated size factors (or normalization factors if these were used) and adds a pseudocount of 1/2 to allow for log scale plotting.
+
+
+
+**drug metabolizing enzymes**
+```{r}
+top_gene<-read.csv("C://Users/agrebinoski/OneDrive - University of Iowa/MARBLES/gene_list_drug_metabolizing_kegg.csv", header = FALSE)
+top_gene<-as.character(top_gene$V1)
+
+setdiff(top_gene,rownames(counts(ldds))) #check if all genes of interest can be found in the rownames of the deseq object --> if not you will not be able to run the block of code. Character(0) or integer(0) is a what you want to see
+```
+
+```{r message=FALSE}
+plot_list<-list()
+for (i in unique(1:length(top_gene))){
+  gene <- top_gene[i]
+ my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
+ b<- plotCounts(ldds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
+ stat.test<-aov(count~Treatment, b)%>%
+   tukey_hsd()
+   z = max(b$count) + (max(b$count)*0.30)
+  d <- ggplot(b, aes(factor(Treatment), count))+
+  stat_summary(mapping = aes(x = Treatment, y = count, fill = Treatment), 
+               geom = 'col', fun.y = 'mean', color = 'black')+
+    #adding jitter to avoid overplotting
+  geom_point(mapping = aes(x = Treatment, y = count, fill = Treatment), 
+             shape = 21, size = 5, position = position_jitter(width = 0.2, height=0))+ 
+    scale_y_continuous(expand = c(0,0) , limits = c(0,z+z*0.6)) +
+  #adding error bars (standard error)
+  stat_summary(mapping = aes(x = Treatment, y = count), 
+               geom = 'errorbar', fun.data = 'mean_se', color = 'black',size = 2, width=0)+
+  #after doing the same basic/important stuff as in the plot above, you cn start tweaking the aesthetics
+  scale_fill_brewer(palette = "BuGn", name = NULL, breaks = c("easy","hard"), labels = c("Easy", "Hard"))+ # changes the color palette and makes the legend labels nicer
+  labs(x = NULL, y = "Normalized counts")+ # changes the y axis label, removes x axis label
+  theme_classic(base_size = 20)+# changes the overall style of the plot
+  ggtitle(paste0(lres1$symbol[gene]))+
+  stat_pvalue_manual(
+    stat.test, label = "p.adj", 
+    y.position = c(z,z+z*0.10,z+z*0.20,z+z*0.30,z+z*0.40,z+z*0.50 ))
+
+  plot_list[[gene]] <- d
+}
+
+head(plot_list)
+```
+
+```{r warning=FALSE}
+# Export into pdf: display multiple plots on the same page
+ggexport(
+  plotlist = plot_list, filename = "Liver_cyp_plot.pdf", 
+  ncol = 2, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
+)
+```
+
+
+#Brain Regions
+```{r}
+top_gene<-read.csv("C://Users/agrebinoski/OneDrive - University of Iowa/MARBLES/gene_list_drug_metabolizing_kegg_striatum.csv", header = FALSE)
+top_gene<-as.character(top_gene$V1)
+
+setdiff(top_gene,rownames(counts(sdds))) #check if all genes of interest can be found in the rownames of the deseq object --> if not you will not be able to run the block of code. Character(0) or integer(0) is a what you want to see
+```
+
+```{r message=FALSE}
+S_plot_list<-list()
+for (i in unique(1:length(top_gene))){
+  gene <- top_gene[i]
+ my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
+ b<- plotCounts(sdds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
+ stat.test<-aov(count~Treatment, b)%>%
+   tukey_hsd()
+   z = max(b$count) + (max(b$count)*0.30)
+  d <- ggplot(b, aes(factor(Treatment), count))+
+  stat_summary(mapping = aes(x = Treatment, y = count, fill = Treatment), 
+               geom = 'col', fun.y = 'mean', color = 'black')+
+    #adding jitter to avoid overplotting
+  geom_point(mapping = aes(x = Treatment, y = count, fill = Treatment), 
+             shape = 21, size = 5, position = position_jitter(width = 0.2, height=0))+ 
+    scale_y_continuous(expand = c(0,0) , limits = c(0,z+z*0.6)) +
+  #adding error bars (standard error)
+  stat_summary(mapping = aes(x = Treatment, y = count), 
+               geom = 'errorbar', fun.data = 'mean_se', color = 'black',size = 2, width=0)+
+  #after doing the same basic/important stuff as in the plot above, you cn start tweaking the aesthetics
+  scale_fill_brewer(palette = "BuGn", name = NULL, breaks = c("easy","hard"), labels = c("Easy", "Hard"))+ # changes the color palette and makes the legend labels nicer
+  labs(x = NULL, y = "Normalized counts")+ # changes the y axis label, removes x axis label
+  theme_classic(base_size = 20)+# changes the overall style of the plot
+  ggtitle(paste0(sres1$symbol[gene]))+
+  stat_pvalue_manual(
+    stat.test, label = "p.adj", 
+    y.position = c(z,z+z*0.10,z+z*0.20,z+z*0.30,z+z*0.40,z+z*0.50 ))
+
+  S_plot_list[[gene]] <- d
+}
+
+head(S_plot_list)
+```
+
+```{r warning=FALSE}
+# Export into pdf: display multiple plots on the same page
+ggexport(
+  plotlist = S_plot_list, filename = "Striatum_cyp_plot.pdf", 
+  ncol = 2, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
+)
+```
+
+#prefrontal Cortex
+
+```{r}
+top_gene<-read.csv("C://Users/agrebinoski/OneDrive - University of Iowa/MARBLES/gene_list_drug_metabolizing_kegg_PFC.csv", header = FALSE)
+top_gene<-as.character(top_gene$V1)
+
+setdiff(top_gene,rownames(counts(pdds))) #check if all genes of interest can be found in the rownames of the deseq object --> if not you will not be able to run the block of code. Character(0) or integer(0) is a what you want to see
+```
+
+
+```{r message=FALSE}
+p_plot_list<-list()
+for (i in unique(1:length(top_gene))){
+  gene <- top_gene[i]
+ my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
+ b<- plotCounts(pdds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
+ stat.test<-aov(count~Treatment, b)%>%
+   tukey_hsd()
+   z = max(b$count) + (max(b$count)*0.30)
+  d <- ggplot(b, aes(factor(Treatment), count))+
+  stat_summary(mapping = aes(x = Treatment, y = count, fill = Treatment), 
+               geom = 'col', fun.y = 'mean', color = 'black')+
+    #adding jitter to avoid overplotting
+  geom_point(mapping = aes(x = Treatment, y = count, fill = Treatment), 
+             shape = 21, size = 5, position = position_jitter(width = 0.2, height=0))+ 
+    scale_y_continuous(expand = c(0,0) , limits = c(0,z+z*0.6)) +
+  #adding error bars (standard error)
+  stat_summary(mapping = aes(x = Treatment, y = count), 
+               geom = 'errorbar', fun.data = 'mean_se', color = 'black',size = 2, width=0)+
+  #after doing the same basic/important stuff as in the plot above, you cn start tweaking the aesthetics
+  scale_fill_brewer(palette = "BuGn", name = NULL, breaks = c("easy","hard"), labels = c("Easy", "Hard"))+ # changes the color palette and makes the legend labels nicer
+  labs(x = NULL, y = "Normalized counts")+ # changes the y axis label, removes x axis label
+  theme_classic(base_size = 20)+# changes the overall style of the plot
+  ggtitle(paste0(pres1$symbol[gene]))+
+  stat_pvalue_manual(
+    stat.test, label = "p.adj", 
+    y.position = c(z,z+z*0.10,z+z*0.20,z+z*0.30,z+z*0.40,z+z*0.50 ))
+
+  p_plot_list[[gene]] <- d
+}
+
+head(p_plot_list)
+```
+
+```{r warning=FALSE}
+# Export into pdf: display multiple plots on the same page
+ggexport(
+  plotlist = p_plot_list, filename = "prefrontal_cyp_plot.pdf", 
+  ncol = 2, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
+)
+```
+
+
+#deconvolution - single cell
+
+

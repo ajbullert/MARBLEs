@@ -1,0 +1,160 @@
+---
+title: "Striatum Metabolomics"
+output: html_notebook
+---
+
+
+```{r}
+BiocManager::install("pmp")
+BiocManager::install("NormalizeMets")
+```
+
+#load in libraries
+```{r}
+library(ggplot2)
+library(rgl)
+library(tidyverse)
+library(tidyr)
+library(RColorBrewer)
+library(expss)
+library(dplyr)
+library(BiocManager)
+library(GenomicAlignments)
+library(BiocParallel)
+library(GenomicFeatures)
+library(Rsubread)
+library(DESeq2)
+library(Rsamtools)
+library(pheatmap)
+library(topGO)
+library(AnnotationDbi)
+library(EnhancedVolcano)
+library(omu)
+library(pmp)
+```
+
+```{r}
+count_df<-read_metabo(filepath = "C:/Users/agrebinoski/OneDrive - University of Iowa/Metabolomics_MARBLES/STN_metab_data.csv")
+
+meta_df<-read.csv("C:/Users/agrebinoski/OneDrive - University of Iowa/Metabolomics_MARBLES/STN_meta_data.csv", header = TRUE)
+
+```
+#change N/A to a na value accepted by R
+```{r}
+count_df[count_df=="N/A"]<-NA
+count_df[4:24]<-lapply(count_df[4:24], as.numeric)
+```
+
+```{r}
+meta_df$Sample<-paste0("X",meta_df$Sample, sep = "") #needed to match samples identifiers in both spreadsheets (adding an X in front of sample IDs)
+```
+
+
+
+```{r}
+DF <- assign_hierarchy(count_data = count_df, keep_unknowns = TRUE, identifier = "KEGG")
+```
+
+#normalize the data to the sum of the columns
+For each sample, every feature intensity value is divided by the total sum of all feature intensity values measured in that sample (NA values ignored by default), before multiplication by 100; the unit is %.
+```{r}
+DF[4:24]<-log2(normalise_to_sum(DF[4:24],check_df = TRUE))
+```
+
+```{r}
+df<-na.omit(DF)
+meta_df$Treatment<-factor(meta_df$Treatment)
+```
+
+```{r}
+pca <- prcomp(t(df[4:24]), center=T, scale=T)
+pcaresults<-summary(pca)
+pcaresults
+```
+
+```{r}
+scree.data <- as.data.frame(pcaresults$importance)
+score.data <- as.data.frame(pcaresults$x)
+loadings.data <- as.data.frame(pcaresults$rotation)
+write.csv(scree.data, "pca_scree.csv")
+write.csv(score.data, "pca_scores.csv")
+write.csv(loadings.data, "pca_loadings.csv")
+```
+
+```{r}
+data <- read.csv("pca_scores.csv", header=T)
+data <- data[, c(1:3)] # subset columns 1-3
+```
+
+```{r}
+colnames(data)[1]<-"Sample"
+data <-merge(meta_df,data, by="Sample")
+```
+
+
+```{r}
+tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/MARBLES/metabolomics_PCA.tiff", units="in", width=8, height=5, res=1000)
+PCA<-PCA_plot(count_data = df, metadata = meta_df, variable = "Treatment", color = "Treatment", response_variable = "Metabolite")+
+stat_ellipse(aes(color=Treatment))+theme_bw() + theme(panel.grid = element_blank())
+
+PCA
+
+dev.off()
+PCA
+```
+#This is following Dereks paper methods.
+Metabolites with NA was removed from the subsequent data analysis. Plotting is which the samples were normalized by the sum of total metabolite intensity. Then log2 transformed. score plot visual seen in principal component analysis (PCA).A total of 116 metabolites will be included in subsequent analysis.
+```{r}
+tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/MARBLES/metabolomics_score_PCA.tiff", units="in", width=8, height=5, res=1000)
+PCA2<-ggplot(data, aes(PC1, PC2)) +
+geom_point(aes(color=Treatment)) +
+stat_ellipse(aes(color=Treatment))+theme_bw() + theme(panel.grid = element_blank())
+
+PCA2
+dev.off()
+PCA2
+```
+
+#Univariate analysis
+```{r}
+group6mean<- apply(df[,c(5,6,7,8,4,22)], 1, FUN=mean)
+groupvehmean<- apply(df[,c(14,15,19,23)], 1, FUN=mean)
+group1mean<- apply(df[,c(18,11,20,13,24,9)], 1, FUN=mean)
+group0.1mean<- apply(df[,c(12,10,17,16,21)], 1, FUN=mean)
+
+```
+
+```{r}
+FC<- group6mean/groupvehmean
+log2fc<-log(FC,2)
+```
+
+```{r}
+group6<-c(5,6,7,8,4,22)
+groupveh<-c(14,15,19,23)
+pvalue<-apply(df, 1, function(x)
+  {t.test(x[group6], x[groupveh])$p.value})
+```
+
+
+```{r}
+pvalue.BHcorr<- p.adjust(pvalue, method = "BH")
+
+pvalue.BHcorr.neglog <- -log10(pvalue.BHcorr)
+```
+
+```{r}
+volcano.data<-data.frame(log2fc,pvalue.BHcorr.neglog)
+```
+
+
+```{r}
+ggplot(data=volcano.data, aes(x=log2fc, y=pvalue.BHcorr.neglog))
+        geom_point() + 
+        theme_minimal() +
+        geom_text_repel() +
+        scale_color_manual(values=c("blue", "black", "red")) +
+        geom_vline(xintercept=c(-0.6, 0.6), col="red") +
+        geom_hline(yintercept=-log10(0.05), col="red")
+```
+
