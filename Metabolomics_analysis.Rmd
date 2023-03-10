@@ -5,8 +5,11 @@ output: html_notebook
 
 
 ```{r}
-BiocManager::install("pmp")
-BiocManager::install("NormalizeMets")
+#BiocManager::install("pmp")
+#BiocManager::install("NormalizeMets")
+#install.packages("WGCNA")
+#library(devtools)
+#install_github("andreasmock/MetaboDiff")
 ```
 
 #load in libraries
@@ -31,6 +34,7 @@ library(AnnotationDbi)
 library(EnhancedVolcano)
 library(omu)
 library(pmp)
+library(MetaboDiff)
 ```
 
 ```{r}
@@ -115,7 +119,93 @@ dev.off()
 PCA2
 ```
 
+```{r}
+assay<-count_df[, c(1,4:24)]
+rownames(assay)<-assay[,1]
+assay[,1]<-NULL
+
+rowData<- count_df[1:3]
+rownames(rowData)<-rowData[,1]
+rowData[,1]<-NULL
+
+colData<-meta_df
+rownames(colData)<-colData[,1]
+colData[,1]<-NULL
+```
+
+```{r}
+(met <- create_mae(assay,rowData, colData))
+```
+
+```{r}
+met <- get_SMPDBanno(met,
+                        column_kegg_id=2,
+                        column_hmdb_id=1,
+                        column_chebi_id=NA)
+```
+
+```{r}
+na_heatmap(met,
+           group_factor="Treatment",
+           label_colors=c("darkseagreen","dodgerblue","red","grey"))
+```
+```{r}
+(met = knn_impute(met,cutoff=0.4))
+```
+
+```{r}
+(met <- normalize_met(met))
+```
+
+```{r}
+quality_plot(met,
+           group_factor="Treatment",
+           label_colors=c("darkseagreen","dodgerblue","red","grey"))
+```
+```{r}
+met = diff_test(met,
+                group_factors = "Treatment")
+```
+
+```{r}
+str(metadata(met), max.level=2)
+```
+```{r}
+par(mfrow=c(1,2))
+volcano_plot(met, 
+             group_factor="Treatment",
+             label_colors=c("darkseagreen","dodgerblue"),
+             dm_cutoff=0.5,
+             p_adjust = FALSE)
+volcano_plot(met, 
+             group_factor="Treatment",
+             label_colors=c("darkseagreen","dodgerblue"),
+             dm_cutoff=0.5,
+             p_adjust = TRUE)
+```
+
 #Univariate analysis
+```{r}
+DF_anova <- omu_anova(count_data = df, metadata = meta_df, response_variable = "Metabolite", model = ~ Treatment)
+DF_anova$`veh-0.1`
+```
+
+```{r}
+DF_stats_sub <- DF_anova$`veh-6`[which(DF_anova$`veh-6`[,"padj"] <= 0.05),]
+
+```
+```{r}
+DF_stats_counts <- count_fold_changes(count_data = DF_anova$`veh-6`, column = "Class", sig_threshold = 0.05, keep_unknowns = FALSE)
+```
+
+```{r}
+Class_Bar_Plot <- plot_bar(fc_data = DF_stats_counts, fill = c("dodgerblue2", "firebrick2"), outline_color = c("black", "black"), size = c(1,1)) + labs(x = "Class") + theme(panel.grid = element_blank())
+
+Class_Bar_Plot
+```
+
+
+
 ```{r}
 group6mean<- apply(df[,c(5,6,7,8,4,22)], 1, FUN=mean)
 groupvehmean<- apply(df[,c(14,15,19,23)], 1, FUN=mean)
