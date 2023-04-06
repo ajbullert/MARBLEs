@@ -8,10 +8,19 @@ output:
 BiocManager::install("Mus.musculus")
 BiocManager::install("enrichplot")
 BiocManager::install("clusterProfiler")
+BiocManager::install("scRNAseq")
 BiocManager::install("SingleCellExperiment")
 BiocManager::install("TOAST")
 devtools::install('Rtools')
 devtools::install_github('xuranw/MuSiC')
+remotes::install_github("renozao/xbioc")
+
+# install the MuSiC2 package
+if (!"MuSiC2" %in% rownames(installed.packages())) {
+  devtools::install_github('Jiaxin-Fan/MuSiC2')
+}
+# load
+library(MuSiC2)
 ```
 
 
@@ -49,6 +58,8 @@ library(MuSiC)
 library(ggpubr)
 library(ggsignif)
 library(rstatix)
+library(scRNAseq)
+library(VennDiagram)
 ```
 
 Set your working directory and pull in your reference genome to compare your samples to. We will read the gene model from an Ensembl GTF file. Be sure your gene model reflects the same model used in your samples. 
@@ -349,6 +360,7 @@ lres3$ensembl <- mapIds(Mus.musculus,
                      multiVals="first")
 ```
 
+
 ```{r}
 write.csv( as.data.frame(lres1), file="L_veh_6_results.csv" )
 write.csv( as.data.frame(lres2), file="L_veh_1_results.csv" )
@@ -381,13 +393,18 @@ L_df <- as.data.frame(colData(L_vsd)[,
 
 ```{r}
 tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/MARBLES/Liver_heatmap.tiff", units="in", width=8, height=5, res=1000)
-pheatmap(L_mat, 
+heat<- pheatmap(L_mat, 
          annotation_col=L_df,
          labels_row = L_resOrdered1$symbol,
          fontsize = 6,
          scale = "row",
          main = "Liver Heatmap")
+
+heat 
+
 dev.off()
+
+heat
 ```
 
 Do the same analysis for the following tissues.
@@ -818,6 +835,7 @@ P_resOrdered3 <- pres3[order(pres3$padj),] #reorder the genes based on significa
 ```
 
 #visualization
+
 ```{r}
 p_mat <- assay(p_vsd)[ head(order(pres1$padj),
                             30), ]
@@ -1602,8 +1620,8 @@ for (i in unique(1:length(top_gene))){
   gene <- top_gene[i]
  my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
  b<- plotCounts(pdds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
- stat.test<-aov(count~Treatment, b)%>%
-   tukey_hsd()
+ #stat.test<-aov(count~Treatment, b)%>%
+   #tukey_hsd()
    z = max(b$count) + (max(b$count)*0.30)
   d <- ggplot(b, aes(factor(Treatment), count))+
   stat_summary(mapping = aes(x = Treatment, y = count, fill = Treatment), 
@@ -1641,4 +1659,62 @@ ggexport(
 
 #deconvolution - single cell
 
+```{r}
+sce.sce<- TasicBrainData(ensembl = TRUE) #single cell data set for the mouse brain
+cellcluster<-factor(sce.sce$broad_type)
+```
+
+
+```{r}
+ensembl<-key$ensembl
+ensembl<-make.names(ensembl, unique = TRUE)
+head(ensembl)
+p_se
+bulk.mtx<-as(p_se1, "ExpressionSet") #my bulk RNA seq data for the mouse brain
+bulk.mtx$Treatment
+table(bulk.mtx$Treatment)
+featureNames(bulk.mtx)<-ensembl
+head(featureNames(bulk.mtx))
+bulk.control.mtx = exprs(bulk.mtx)[, bulk.mtx$Treatment=='Vehicle']
+bulk.case.mtx = exprs(bulk.mtx)[, bulk.mtx$Treatment=='6']
+```
+
+```{r}
+Est= music2_prop_t_statistics(bulk.control.mtx = bulk.control.mtx, bulk.case.mtx = bulk.case.mtx, sc.sce = sce.sce, clusters = 'broad_type',samples = 'sample_title', select.ct =c("Astrocyte","Microglia","Oligodendrocyte", "Oligodendrocyte Precursor Cell","GABA-ergic Neuron", "Glutamatergic Neuron", "Endothelial Cell"), sample_prop=0.5,cutoff_c=0.05,cutoff_r=0.01)
+```
+
+```{r}
+est.prop<- Est$Est.prop
+prop_all$sample_title
+```
+
+```{r}
+prop_all = cbind('proportion'=c(est.prop), 'sample_title'=rep(rownames(est.prop),times=ncol(est.prop)), 'broad_type'=rep(colnames(est.prop), each=nrow(est.prop)))
+
+prop_all = as.data.frame(prop_all)
+prop_all$proportion = as.numeric(as.character(prop_all$proportion))
+prop_all$group = ifelse(prop_all$sample_title %in% seq(from=3, to=8, by=1), 'Exposed', 'Vehicle')
+cols <-c("Astrocyte" = "cadetblue2", "Microglia" = "lightsalmon1", "GABA-ergic Neuron" = "palegreen2","Oligodendrocyte" = "goldenrod1", "Oligodendrocyte Precursor Cell"="steelblue3", "Glutamatergic Neuron" = "plum2","Endothelial Cell" = "tan" )
+```
+
+```{r}
+ggplot(prop_all, aes(x=broad_type, y=proportion, color=broad_type)) + xlab('')+
+  geom_jitter(width=0.25,alpha=0.8)+ylab('Cell Type Proportions')+theme_bw()+
+  stat_summary(fun = median,
+               geom = "crossbar", width = 0.3,size=0.1,color='gray36')+
+  facet_grid(.~group)+
+  theme(plot.title = element_text(hjust = 0.5, size=12),
+        axis.text.x = element_text(size=12,angle = 45,hjust=1),
+        axis.text.y = element_text(size=12),
+        axis.title.x = element_text(size=12),
+        axis.title.y = element_text(size=12),
+        axis.line = element_line(colour = "black"),
+        strip.text.x = element_text(size = 12),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        legend.position = 'none')+
+  scale_color_manual(values=cols)
+```
 

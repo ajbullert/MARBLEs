@@ -1,0 +1,226 @@
+---
+title: "MultiOmics integration"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+```{r}
+BiocManager::install("mixOmics")
+```
+
+
+The majority of Library packages are listed here. If you want to include more just install and load at the end of the list. If code isn't recognizing the function, it is likely that R didn't load the package that the function comes from.
+#load libraries every time
+```{r, results='hide'}
+library(ggplot2)
+library(devtools)
+library(rgl)
+library(tidyverse)
+library(tidyr)
+library(RColorBrewer)
+library(expss)
+library(plyr)
+library(dplyr)
+library(BiocManager)
+library(GenomicAlignments)
+library(BiocParallel)
+library(GenomicFeatures)
+library(Rsubread)
+library(DESeq2)
+library(Mus.musculus)
+library(Rsamtools)
+library(pheatmap)
+library(topGO)
+library(gridExtra)
+library(AnnotationDbi)
+library(org.Mm.eg.db)
+library(EnhancedVolcano)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(enrichplot)
+library(clusterProfiler)
+library(pathview)
+library(readr)
+library(MuSiC)
+library(ggpubr)
+library(ggsignif)
+library(rstatix)
+library(mixOmics)
+```
+
+
+```{r, results=FALSE}
+setwd("C:/Users/agrebinoski/OneDrive - University of Iowa/Metabolomics_MARBLES/")
+A<-read.csv("microbiome_MARBLES.csv")
+B<-read.csv("STN_metab_data_metaboanalyst.csv")
+C<-read.csv("liver_RNA_count.csv")
+Y<-read.csv(file = "STN_meta_data.csv")
+l6<-read.csv(file = "L_veh_6_results.csv")
+l1<-read.csv(file = "L_veh_1_results.csv")
+l0.1<-read.csv(file = "L_veh_0.1_results.csv")
+```
+
+```{r }
+Y<-factor(Y$Class)
+summary(Y)
+```
+
+```{r}
+A<- A[order(A$Sample_ID),]
+row.names(A)<-A$Sample_ID
+A<-A[,-1]
+head(A)
+A<- A[ , colSums(A) >= 10 ]
+```
+
+```{r, results='hide'}
+B <- as.data.frame(apply(B, 2, as.numeric))
+B<- B[order(B$Sample_ID),]
+row.names(B)<-B$Sample_ID
+B<-B[,-1]
+head(B)
+```
+
+#create list of DEGs from all contrasts of the liver
+```{r}
+l6<-l6[order(l6$padj),]
+l6<-l6[1:100,]
+
+l1<-l1[order(l1$padj),]
+l1<-l1[1:100,]
+
+l0.1<-l0.1[order(l0.1$padj),]
+l0.1<-l0.1[1:100,]
+DEG<-rbind(l6,l1,l0.1)
+DEG
+
+```
+
+```{r}
+colnames(C)[1]<-"X"
+
+C<- match_df(C,DEG, on= "X")
+
+C<-t(as.data.frame(C))
+colnames(C)<-C[1,]
+C<-C[-1,]
+
+C <- data.frame(names = row.names(C), C)
+rownames(C)<-NULL
+C$names<-gsub("X","",as.character(C$names))
+C <- as.data.frame(apply(C, 2, as.numeric))
+C <- C[order(C$names),]
+row.names(C)<-C$names
+C<-C[,-1]
+head(C)
+C<- C[ , colSums(C) >= 10 ]
+
+```
+
+```{r}
+X<- list(microbiome = A ,
+         metabolomics = B ,
+         RNAseq= C)
+
+```
+
+```{r}
+#list.keepX <- list(microbiome = c(100, 100), metabolomics = c(100,100), RNAseq = c(1000, 1000))
+```
+
+```{r}
+design <- matrix(0.1, ncol = length(X), nrow = length(X), 
+                dimnames = list(names(X), names(X)))
+diag(design) <- 0
+design 
+```
+
+```{r}
+res1.pls.tcga <- pls(X$metabolomics, X$RNAseq, ncomp = 1)
+cor(res1.pls.tcga$variates$X, res1.pls.tcga$variates$Y)
+
+res2.pls.tcga <- pls(X$microbiome, X$RNAseq, ncomp = 1)
+cor(res2.pls.tcga$variates$X, res2.pls.tcga$variates$Y)
+
+res3.pls.tcga <- pls(X$microbiome, X$metabolomics, ncomp = 1)
+cor(res3.pls.tcga$variates$X, res3.pls.tcga$variates$Y)
+```
+
+
+
+```{r}
+MyResult.diablo <- block.splsda(X, Y, ncomp = 5, design = design)
+perf.diablo.tcga = perf(MyResult.diablo, validation = 'Mfold', folds = 3, nrepeat = 10)
+
+# Plot of the error rates based on weighted vote
+plot(perf.diablo.tcga)
+```
+
+```{r}
+perf.diablo.tcga$choice.ncomp$WeightedVote
+ncomp <- perf.diablo.tcga$choice.ncomp$WeightedVote["Overall.BER", "centroids.dist"]
+```
+
+```{r}
+test.keepX <- list(RNAseq = c(5:9, seq(10, 25, 5)),
+                   microbiome = c(5:9, seq(10, 20, 2)),
+                   metabolomics = c(seq(5, 25, 5)))
+```
+
+
+```{r}
+tune.diablo.tcga <- tune.block.splsda(X, Y, ncomp = 10,
+                                      test.keepX = test.keepX, design = design,
+                              validation = 'Mfold', folds = 3, nrepeat = 10, 
+                              BPPARAM = BiocParallel::SnowParam(workers = 2),
+                              dist = "centroids.dist")
+```
+
+
+```{r}
+
+plotIndiv(MyResult.diablo)
+plotVar(MyResult.diablo)
+```
+```{r}
+plotDiablo(MyResult.diablo, ncomp = 1)
+```
+
+
+```{r}
+plotIndiv(MyResult.diablo, 
+          ind.names = FALSE, 
+          legend=TRUE, cex=4,
+          title = 'Omics with DIABLO')
+```
+```{r}
+plotVar(MyResult.diablo, var.names = c(FALSE, FALSE, FALSE),
+        legend=TRUE, pch=c(16,16,1))
+```
+
+
+```{r}
+network(MyResult.diablo, blocks = c(1,2,3),
+        color.node = c('darkorchid', 'brown1', 'lightgreen'), 
+        cutoff = 0.6, save = 'jpeg', name.save = 'DIABLOnetwork')
+```
+
+```{r}
+circosPlot(MyResult.diablo, cutoff=0.8, comp = 1)
+```
+
+
+```{r}
+MyResult.spls <- spls(A,B, keepX = c(5, 5), keepY = c(5,5))
+```
+```{r}
+plotVar(MyResult.spls)
+```
+```{r}
+MySelectedVariables <- selectVar(MyResult.spls, comp = 1)
+MySelectedVariables$X$name # Selected genes on component 1
+```
+
+```{r}
+plotLoadings(MyResult.spls, comp = 1, size.name = rel(0.5))
+```
+
