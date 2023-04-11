@@ -11,7 +11,6 @@ BiocManager::install("clusterProfiler")
 BiocManager::install("scRNAseq")
 BiocManager::install("SingleCellExperiment")
 BiocManager::install("TOAST")
-devtools::install('Rtools')
 devtools::install_github('xuranw/MuSiC')
 remotes::install_github("renozao/xbioc")
 
@@ -36,6 +35,7 @@ library(RColorBrewer)
 library(expss)
 library(dplyr)
 library(BiocManager)
+library(RMariaDB)
 library(GenomicAlignments)
 library(BiocParallel)
 library(GenomicFeatures)
@@ -91,7 +91,7 @@ Livinfo<- read.csv(file = "Liv_sample_info.csv", #reading in the sample informat
                    sep = ",")
 
 liv_filenames <- file.path("P:/OEH/Faculty/hlehmler/research/Lehmler Group-Amanda Bullert/MARBLE/rawdata/BAM_files/", 
-                           Livinfo$ï..Sample_ID)
+                           Livinfo$Sample_ID)
 file.exists(liv_filenames) #a sanity check to make sure you have files named
 ```
 
@@ -119,7 +119,7 @@ str(metadata(rowRanges(liv_se))) #just to look a the structure of data
 *striatum*
 ```{r}
 Sinfo<- read.csv(file = "striatum_sample_info.csv", header = T, sep = ",")
-s_filenames <- file.path("P:/OEH/Faculty/hlehmler/research/Lehmler Group-Amanda Bullert/MARBLE/rawdata/BAM_files/", Sinfo$ï..Sample_ID)
+s_filenames <- file.path("P:/OEH/Faculty/hlehmler/research/Lehmler Group-Amanda Bullert/MARBLE/rawdata/BAM_files/", Sinfo$Sample_ID)
 file.exists(s_filenames)
 ```
 
@@ -146,7 +146,7 @@ pinfo<- read.csv(file = "piriform_sample_info.csv",
                  header = T, 
                  sep = ",")
 p_filenames <- file.path("P:/OEH/Faculty/hlehmler/research/Lehmler Group-Amanda Bullert/MARBLE/rawdata/BAM_files/", 
-                         pinfo$ï..Sample_ID)
+                         pinfo$Sample_ID)
 file.exists(p_filenames)
 ```
 
@@ -204,21 +204,35 @@ L_percentVar <- round(100 * attr(L_data,
 ```
 
 ```{r}
-ggplot(L_data, aes(PC1, 
+tiff(file = "PCA_plots/Liver_PCA.tiff", units="in", width=8, height=6, res=1000)
+PCA <-ggplot(L_data, aes(PC1, 
                    PC2, 
-                   color=Treatment)) + 
+                   color=Treatment,
+                   shape= Treatment)) + 
   stat_ellipse(aes(color= Treatment))+
+  ggtitle("Liver PCA")+
   geom_point(size=3) +
+  scale_color_manual(values = c("#999900", "#FF9933", "#3399FF", "#9933FF")) +
+  scale_shape_manual(values = c(19, 15, 17, 18)) +
   xlab(paste0("PC1: ",
               L_percentVar[1],
               "% variance")) +
   ylab(paste0("PC2: ",
               L_percentVar[2],
-              "% variance"))
+              "% variance"))+ 
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.line = element_line(colour = "black"))
+PCA
+dev.off()
+PCA
+
 ```
 #Liver results
 #***Differential Expression***
-Lets run a differential expression pipline using the raw counts
+Lets run a differential expression pipeline using the raw counts
 
 This function will print out a message for the various steps it performs. These are described in more detail in the manual page for DESeq, which can be accessed by typing ?DESeq. Briefly these are: the estimation of size factors (controlling for differences in the sequencing depth of the samples), the estimation of dispersion values for each gene, and fitting a generalized linear model.
 ```{r}
@@ -234,21 +248,8 @@ summary(lres2)
 summary(lres3)
 ```
 
-expected ratio of false positives in the set with p < .05
-```{r}
-round(sum(!is.na(lres1$pvalue))*.05 / sum(lres1$pvalue < .05, 
-                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
-```
-Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
-```{r}
-sum(lres1$padj < 0.1, 
-    na.rm=TRUE)
-```
 
 #***Annotating results***
-```{r}
-columns(Mus.musculus)
-```
 
 How to assign actual gene names to our counts. Using an annotation package for Mus musculus. 
 ```{r}
@@ -362,15 +363,15 @@ lres3$ensembl <- mapIds(Mus.musculus,
 
 
 ```{r}
-write.csv( as.data.frame(lres1), file="L_veh_6_results.csv" )
-write.csv( as.data.frame(lres2), file="L_veh_1_results.csv" )
-write.csv( as.data.frame(lres3), file="L_veh_0.1_results.csv" )
+write.csv( as.data.frame(lres1), file="Results_spreadsheets/L_veh_6_results.csv" )
+write.csv( as.data.frame(lres2), file="Results_spreadsheets/L_veh_1_results.csv" )
+write.csv( as.data.frame(lres3), file="Results_spreadsheets/L_veh_0.1_results.csv" )
 ```
 
 ```{r}
-write_tsv( as.data.frame(lres1), file="L_veh_6_results.tsv" )
-write_tsv( as.data.frame(lres2), file="L_veh_1_results.tsv" )
-write_tsv( as.data.frame(lres3), file="L_veh_0.1_results.tsv" )
+write_tsv( as.data.frame(lres1), file="Results_spreadsheets/L_veh_6_results.tsv" )
+write_tsv( as.data.frame(lres2), file="Results_spreadsheets/L_veh_1_results.tsv" )
+write_tsv( as.data.frame(lres3), file="Results_spreadsheets/L_veh_0.1_results.tsv" )
 ```
 
 ```{r}
@@ -386,18 +387,20 @@ L_mat <- assay(L_vsd)[ head(order(lres1$padj),
                             30), #top 30 genes 
                        ]
 #L_mat <- L_mat - rowMeans(L_mat)
-L_df <- as.data.frame(colData(L_vsd)[,
-                                     c("Tissue",
-                                       "Treatment")])
+L_df <- as.data.frame(colData(L_vsd)[,"Treatment"])
+colnames(L_df)[1]<- "Treatment"
+
 ```
 
+
 ```{r}
-tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/MARBLES/Liver_heatmap.tiff", units="in", width=8, height=5, res=1000)
+tiff(file = "Heatmaps/Liver_heatmap.tiff", units="in", width=8, height=5, res=1000)
 heat<- pheatmap(L_mat, 
          annotation_col=L_df,
          labels_row = L_resOrdered1$symbol,
          fontsize = 6,
          scale = "row",
+         show_colnames = F,
          main = "Liver Heatmap")
 
 heat 
@@ -410,7 +413,6 @@ heat
 Do the same analysis for the following tissues.
 
 #***Striatum Tissue***
-
 
 ```{r}
 colData(s_se)
@@ -439,18 +441,33 @@ s_percentVar <- round(100 * attr(s_data,
                                  "percentVar"))
 ```
 
+#Striatum PCA
 ```{r}
-ggplot(s_data, aes(PC1, 
+tiff(file = "PCA_plots/Striatum_PCA.tiff", units="in", width=8, height=6, res=1000)
+PCA <-ggplot(s_data, aes(PC1, 
                    PC2, 
-                   color=Treatment)) + 
-  stat_ellipse(aes(color=Treatment))+
+                   color=Treatment,
+                   shape= Treatment)) + 
+  stat_ellipse(aes(color= Treatment))+
+  ggtitle("Striatum PCA")+
   geom_point(size=3) +
+  scale_color_manual(values = c("#999900", "#FF9933", "#3399FF", "#9933FF")) +
+  scale_shape_manual(values = c(19, 15, 17, 18)) +
   xlab(paste0("PC1: ",
-              s_percentVar[1],
+              L_percentVar[1],
               "% variance")) +
   ylab(paste0("PC2: ",
-              s_percentVar[2],
-              "% variance"))
+              L_percentVar[2],
+              "% variance"))+ 
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.line = element_line(colour = "black"))
+PCA
+dev.off()
+PCA
+
 ```
 
 ```{r}
@@ -467,21 +484,7 @@ summary(sres2)
 summary(sres3)
 ```
 
-expected ratio of false positives in the set with p < .05
-```{r}
-round(sum(!is.na(sres1$pvalue))*.05 / sum(sres1$pvalue < .05, 
-                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
-```
-Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
-```{r}
-sum(sres1$padj < 0.1, 
-    na.rm=TRUE)
-```
-
 #***Annotating results***
-```{r}
-columns(Mus.musculus)
-```
 
 How to assign actual gene names to our counts. Using an annotation package for Mus musculus. 
 ```{r}
@@ -595,15 +598,15 @@ sres3$ensembl <- mapIds(Mus.musculus,
 ```
 #exporting striatum results
 ```{r}
-write.csv( as.data.frame(sres1), file="S_veh_6_results.csv" )
-write.csv( as.data.frame(sres2), file="S_veh_1_results.csv" )
-write.csv( as.data.frame(sres3), file="S_veh_0.1_results.csv" )
+write.csv( as.data.frame(sres1), file="Results_spreadsheets/S_veh_6_results.csv" )
+write.csv( as.data.frame(sres2), file="Results_spreadsheets/S_veh_1_results.csv" )
+write.csv( as.data.frame(sres3), file="Results_spreadsheets/S_veh_0.1_results.csv" )
 ```
 
 ```{r}
-write_tsv( as.data.frame(sres1), file="S_veh_6_results.tsv" )
-write_tsv( as.data.frame(sres2), file="S_veh_1_results.tsv" )
-write_tsv( as.data.frame(sres3), file="S_veh_0.1_results.tsv" )
+write_tsv( as.data.frame(sres1), file="Results_spreadsheets/S_veh_6_results.tsv" )
+write_tsv( as.data.frame(sres2), file="Results_spreadsheets/S_veh_1_results.tsv" )
+write_tsv( as.data.frame(sres3), file="Results_spreadsheets/S_veh_0.1_results.tsv" )
 ```
 
 
@@ -619,17 +622,19 @@ s_mat <- assay(s_vsd)[ head(order(sres1$padj),
                             30), ]
 #s_mat <- s_mat - rowMeans(s_mat)
 s_df <- as.data.frame(colData(s_vsd)[,
-                                     c("Tissue",
+                                     c(
                                        "Treatment")])
+colnames(s_df)[1]<- "Treatment"
 ```
 
 ```{r}
-tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/MARBLES/Striatum_heatmap.tiff", units="in", width=8, height=5, res=1000)
+tiff(file = "Heatmaps/Striatum_heatmap.tiff", units="in", width=8, height=5, res=1000)
 pheatmap(s_mat, 
          annotation_col=s_df,
          labels_row = S_resOrdered1$symbol,
+         fontsize = 6,
          scale = "row",
-         fontsize = 8,
+         show_colnames = F,
          main = "Striatum Heatmap")
 dev.off()
 ```
@@ -664,17 +669,31 @@ p_percentVar <- round(100 * attr(p_data,
 
 #Prefrontal PCA
 ```{r}
-ggplot(p_data, aes(PC1, 
+tiff(file = "PCA_plots/PFC_PCA.tiff", units="in", width=8, height=6, res=1000)
+PCA <-ggplot(p_data, aes(PC1, 
                    PC2, 
-                   color=Treatment)) + 
-  stat_ellipse(aes(color=Treatment))+
+                   color=Treatment,
+                   shape= Treatment)) + 
+  stat_ellipse(aes(color= Treatment))+
+  ggtitle("Prefrontal Cortex PCA")+
   geom_point(size=3) +
+  scale_color_manual(values = c("#999900", "#FF9933", "#3399FF", "#9933FF")) +
+  scale_shape_manual(values = c(19, 15, 17, 18)) +
   xlab(paste0("PC1: ",
-             p_percentVar[1],
+              L_percentVar[1],
               "% variance")) +
   ylab(paste0("PC2: ",
-              p_percentVar[2],
-              "% variance"))
+              L_percentVar[2],
+              "% variance"))+ 
+  theme_bw() + 
+  theme(panel.border = element_blank(), 
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(), 
+        axis.line = element_line(colour = "black"))
+PCA
+dev.off()
+PCA
+
 ```
 
 ```{r}
@@ -690,22 +709,8 @@ summary(pres2)
 summary(pres3)
 ```
 
-expected ratio of false positives in the set with p < .05
-```{r}
-round(sum(!is.na(pres1$pvalue))*.05 / sum(pres1$pvalue < .05, 
-                                          na.rm=TRUE),2) # expected ratio of false positives in the set with p < .05
-```
-Hence, if we consider a fraction of 10% false positives acceptable, we can consider all genes with an adjusted p value below 10% = 0.1 as significant. How many such genes are there?
-```{r}
-sum(pres1$padj < 0.1, 
-    na.rm=TRUE)
-```
 
 #***Annotating results***
-```{r}
-columns(Mus.musculus)
-```
-
 How to assign actual gene names to our counts. Using an annotation package for Mus musculus. 
 ```{r}
 pres1$symbol <- mapIds(Mus.musculus, #which annotation package model to use
@@ -817,15 +822,15 @@ pres3$ensembl <- mapIds(Mus.musculus,
 ```
 #exporting Prefrontal Cortex Results
 ```{r}
-write.csv( as.data.frame(pres1), file="P_veh_6_results.csv" )
-write.csv( as.data.frame(pres2), file="P_veh_1_results.csv" )
-write.csv( as.data.frame(pres3), file="P_veh_0.1_results.csv" )
+write.csv( as.data.frame(pres1), file="Results_spreadsheets/P_veh_6_results.csv" )
+write.csv( as.data.frame(pres2), file="Results_spreadsheets/P_veh_1_results.csv" )
+write.csv( as.data.frame(pres3), file="Results_spreadsheets/P_veh_0.1_results.csv" )
 ```
 
 ```{r}
-write_tsv( as.data.frame(pres1), file="P_veh_6_results.tsv" )
-write_tsv( as.data.frame(pres2), file="P_veh_1_results.tsv" )
-write_tsv( as.data.frame(pres3), file="P_veh_0.1_results.tsv" )
+write_tsv( as.data.frame(pres1), file="Results_spreadsheets/P_veh_6_results.tsv" )
+write_tsv( as.data.frame(pres2), file="Results_spreadsheets/P_veh_1_results.tsv" )
+write_tsv( as.data.frame(pres3), file="Results_spreadsheets/P_veh_0.1_results.tsv" )
 ```
 
 ```{r}
@@ -841,29 +846,32 @@ p_mat <- assay(p_vsd)[ head(order(pres1$padj),
                             30), ]
 #p_mat <- p_mat - rowMeans(p_mat)
 p_df <- as.data.frame(colData(p_vsd)[,
-                                     c("Tissue",
+                                     c(
                                        "Treatment")])
+colnames(p_df)[1]<- "Treatment"
 ```
 
 ```{r}
-tiff(file = "C:/Users/agrebinoski/OneDrive - University of Iowa/MARBLES/Prefrontal_cortex_heatmap.tiff", units="in", width=8, height=5, res=1000)
+tiff(file = "Heatmaps/Prefrontal_cortex_heatmap.tiff", units="in", width=8, height=5, res=1000)
 pheatmap(p_mat, 
          annotation_col=p_df,
          labels_row = P_resOrdered1$symbol,
          scale = "row",
          fontsize = 8,
+         show_colnames = F,
          main = "Prefrontal Cortex Heatmap")
 dev.off()
 ```
 
 #***volcano plots***
 ```{r}
-tiff(file = 'L_volcano_plot_6vsVeh.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'volcano_plots/L_volcano_plot_6vsVeh.tiff', units="in", width=8, height=5, res=1000)
 L1<- EnhancedVolcano(lres1,
     lab = lres1$symbol,
     x = 'log2FoldChange',
     y = 'pvalue',
-    title = "Liver Volcano Plot",
+    title = "Liver",
+    subtitle = "6 mg/kg",
     xlim = c(-7,7) ,
     ylim = c(0,18),
     FCcutoff = 1.0,
@@ -873,8 +881,8 @@ L1<- EnhancedVolcano(lres1,
     legendLabels=c('Not sig.','Log (base 2) FC','p-value',
       'p-value & Log (base 2) FC'),
     legendPosition = 'right',
-    legendLabSize = 16,
-    legendIconSize = 5.0,
+    legendLabSize = 12,
+    legendIconSize = 3.0,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
@@ -885,12 +893,13 @@ dev.off()
 L1
 ```
 ```{r}
-tiff(file = 'L_volcano_plot_1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'volcano_plots/L_volcano_plot_1vsVeh.tiff', units="in", width=8, height=5, res=1000)
 L2<- EnhancedVolcano(lres2,
     lab = lres2$symbol,
     x = 'log2FoldChange',
     y = 'pvalue',
-    title = "Liver Volcano Plot",
+    title = "Liver",
+    subtitle = "1 mg/kg",
     xlim = c(-7,7) ,
     ylim = c(0,18),
     FCcutoff = 1.0,
@@ -900,8 +909,8 @@ L2<- EnhancedVolcano(lres2,
     legendLabels=c('Not sig.','Log (base 2) FC','p-value',
       'p-value & Log (base 2) FC'),
     legendPosition = 'right',
-    legendLabSize = 16,
-    legendIconSize = 5.0,
+    legendLabSize = 12,
+    legendIconSize = 3.0,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
@@ -912,12 +921,13 @@ dev.off()
 L2
 ```
 ```{r}
-tiff(file = 'L_volcano_plot_0.1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'volcano_plots/L_volcano_plot_0.1vsVeh.tiff', units="in", width=8, height=5, res=1000)
 L3<- EnhancedVolcano(lres3,
     lab = lres3$symbol,
     x = 'log2FoldChange',
     y = 'pvalue',
-    title = "Liver Volcano Plot",
+    title = "Liver",
+    subtitle = "0.1 mg/kg",
     xlim = c(-7,7) ,
     ylim = c(0,18),
     FCcutoff = 1.0,
@@ -927,8 +937,8 @@ L3<- EnhancedVolcano(lres3,
     legendLabels=c('Not sig.','Log (base 2) FC','p-value',
       'p-value & Log (base 2) FC'),
     legendPosition = 'right',
-    legendLabSize = 16,
-    legendIconSize = 5.0,
+    legendLabSize = 12,
+    legendIconSize = 3.0,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
@@ -941,12 +951,13 @@ L3
 
 
 ```{r}
-tiff(file = 'P_volcano_plot_6vsVeh.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'volcano_plots/P_volcano_plot_6vsVeh.tiff', units="in", width=8, height=5, res=1000)
 p1<- EnhancedVolcano(pres1,
                      lab =pres1$symbol,
                      x = 'log2FoldChange',
                      y = 'pvalue',
-                     title = "Prefrontal Cortex Volcano Plot",
+                     title = "Prefrontal Cortex",
+                    subtitle = "6 mg/kg",
                      xlim = c(-7,7) ,
                      ylim = c(0,7),
                      FCcutoff = 1.0,
@@ -958,8 +969,8 @@ p1<- EnhancedVolcano(pres1,
                                     'p-value',
                                     'p-value & Log (base 2) FC'),
                      legendPosition = 'right',
-                     legendLabSize = 16,
-                     legendIconSize = 5.0,
+                     legendLabSize = 12,
+                     legendIconSize = 3.0,
                      gridlines.major = FALSE,
                      gridlines.minor = FALSE,
                      border = 'full',
@@ -971,12 +982,13 @@ p1
 ```
 
 ```{r}
-tiff(file = 'P_volcano_plot_1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'volcano_plots/P_volcano_plot_1vsVeh.tiff', units="in", width=8, height=5, res=1000)
 p2<- EnhancedVolcano(pres2,
                      lab = pres2$symbol,
                      x = 'log2FoldChange',
                      y = 'pvalue',
-                     title = "Prefrontal Cortex Volcano Plot",
+                     title = "Prefrontal Cortex",
+                     subtitle = "1 mg/kg",
                      xlim = c(-7,7) ,
                      ylim = c(0,7),
                      FCcutoff = 1.0,
@@ -988,8 +1000,8 @@ p2<- EnhancedVolcano(pres2,
                                     'p-value',
                                     'p-value & Log (base 2) FC'),
                      legendPosition = 'right',
-                     legendLabSize = 16,
-                     legendIconSize = 5.0,
+                     legendLabSize = 12,
+                     legendIconSize = 3.0,
                      gridlines.major = FALSE,
                      gridlines.minor = FALSE,
                      border = 'full',
@@ -1000,12 +1012,13 @@ dev.off()
 p2
 ```
 ```{r}
-tiff(file = 'P_volcano_plot_0.1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'volcano_plots/P_volcano_plot_0.1vsVeh.tiff', units="in", width=8, height=5, res=1000)
 p3<- EnhancedVolcano(pres3,
                      lab = pres3$symbol,
                      x = 'log2FoldChange',
                      y = 'pvalue',
-                     title = "Prefrontal Cortex Volcano Plot",
+                     title = "Prefrontal Cortex",
+                     subtitle = "0.1 mg/kg",
                      xlim = c(-7,7) ,
                      ylim = c(0,7),
                      FCcutoff = 1.0,
@@ -1017,8 +1030,8 @@ p3<- EnhancedVolcano(pres3,
                                     'p-value',
                                     'p-value & Log (base 2) FC'),
                      legendPosition = 'right',
-                     legendLabSize = 16,
-                     legendIconSize = 5.0,
+                     legendLabSize = 12,
+                     legendIconSize = 3.0,
                      gridlines.major = FALSE,
                      gridlines.minor = FALSE,
                      border = 'full',
@@ -1031,12 +1044,13 @@ p3
 
 
 ```{r}
-tiff(file = 'S_volcano_plot_6vsVeh.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'volcano_plots/S_volcano_plot_6vsVeh.tiff', units="in", width=8, height=5, res=1000)
 s1<-EnhancedVolcano(sres1,
     lab = sres1$symbol,
     x = 'log2FoldChange',
     y = 'pvalue',
-    title = "Striatum Volcano Plot",
+    title = "Striatum",
+    subtitle = "6 mg/kg",
     xlim = c(-7,7) ,
     ylim = c(0,7),
     FCcutoff = 1.0,
@@ -1046,8 +1060,8 @@ s1<-EnhancedVolcano(sres1,
     legendLabels=c('Not sig.','Log (base 2) FC','p-value',
       'p-value & Log (base 2) FC'),
     legendPosition = 'right',
-    legendLabSize = 16,
-    legendIconSize = 5.0,
+    legendLabSize = 12,
+    legendIconSize = 3.0,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
@@ -1058,12 +1072,13 @@ dev.off()
 s1
 ```
 ```{r}
-tiff(file = 'S_volcano_plot_1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'volcano_plots/S_volcano_plot_1vsVeh.tiff', units="in", width=8, height=5, res=1000)
 s2<-EnhancedVolcano(sres2,
     lab = sres2$symbol,
     x = 'log2FoldChange',
     y = 'pvalue',
-    title = "Striatum Volcano Plot",
+    title = "Striatum",
+    subtitle = "1 mg/kg",
     xlim = c(-7,7) ,
     ylim = c(0,7),
     FCcutoff = 1.0,
@@ -1073,8 +1088,8 @@ s2<-EnhancedVolcano(sres2,
     legendLabels=c('Not sig.','Log (base 2) FC','p-value',
       'p-value & Log (base 2) FC'),
     legendPosition = 'right',
-    legendLabSize = 16,
-    legendIconSize = 5.0,
+    legendLabSize = 12,
+    legendIconSize = 3.0,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
@@ -1085,12 +1100,13 @@ dev.off()
 s2
 ```
 ```{r}
-tiff(file = 'S_volcano_plot_0.1vsVeh.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'volcano_plots/S_volcano_plot_0.1vsVeh.tiff', units="in", width=8, height=5, res=1000)
 s3<-EnhancedVolcano(sres3,
     lab = sres3$symbol,
     x = 'log2FoldChange',
     y = 'pvalue',
-    title = "Striatum Volcano Plot",
+    title = "Striatum",
+    subtitle = "0.1 mg/kg",
     xlim = c(-7,7) ,
     ylim = c(0,7),
     FCcutoff = 1.0,
@@ -1100,8 +1116,8 @@ s3<-EnhancedVolcano(sres3,
     legendLabels=c('Not sig.','Log (base 2) FC','p-value',
       'p-value & Log (base 2) FC'),
     legendPosition = 'right',
-    legendLabSize = 16,
-    legendIconSize = 5.0,
+    legendLabSize = 12,
+    legendIconSize = 3.0,
     gridlines.major = FALSE,
     gridlines.minor = FALSE,
     border = 'full',
@@ -1112,84 +1128,7 @@ dev.off()
 s3
 ```
 
-#***Gene Ontology***
-```{r}
-L_genelistUp1 <- factor( as.integer(lres1$padj < .1 & lres1$log2FoldChange > 0 ) )
-names(L_genelistUp1) <- lres1$ensembl
-```
-
-```{r}
-myGOdata <- new( "topGOdata",
-   ontology = "BP",
-   allGenes = L_genelistUp1,
-   nodeSize = 10,
-   annot = annFUN.org, mapping = "org.Mm.eg.db", ID= "ensembl" )
-```
-
-```{r}
-goTestResults <- runTest( myGOdata, algorithm = "elim", statistic = "fisher" )
-```
-
-```{r}
-pdf("liv_ontology.pdf", height=8.5, width=11)
-grid.table(GenTable(myGOdata, goTestResults ))
-dev.off()
-```
-
-```{r}
-p_genelistUp <- factor( as.integer(pres1$padj < .1 & pres1$log2FoldChange > 0 ) )
-names(p_genelistUp) <- pres1$ensembl
-```
-
-```{r}
-p_myGOdata <- new( "topGOdata",
-   ontology = "BP",
-   allGenes = p_genelistUp,
-   nodeSize = 10,
-   annot = annFUN.org, mapping = "org.Mm.eg.db", ID= "ensembl" )
-```
-
-```{r}
-p_goTestResults <- runTest( p_myGOdata, algorithm = "elim", statistic = "fisher" )
-```
-
-```{r}
-pdf("piriform_ontology.pdf", height=8.5, width=11)
-grid.table(GenTable(p_myGOdata, p_goTestResults ))
-dev.off()
-```
-
-
-```{r}
-s_genelistUp <- factor( as.integer(sres1$padj < .1 & sres1$log2FoldChange > 0 ) )
-names(s_genelistUp) <- sres1$ensembl
-```
-
-```{r}
-s_myGOdata <- new( "topGOdata",
-   ontology = "BP",
-   allGenes = s_genelistUp,
-   nodeSize = 10,
-   annot = annFUN.org, mapping = "org.Mm.eg.db", ID= "ensembl" )
-```
-
-```{r}
-s_goTestResults <- runTest(s_myGOdata, algorithm = "elim", statistic = "fisher" )
-```
-
-```{r}
-pdf("striatum_ontology.pdf", height=8.5, width=11)
-grid.table(GenTable(s_myGOdata, s_goTestResults ))
-dev.off()
-```
-
-```{r}
-resultFisher <- runTest(myGOdata, algorithm = "classic", statistic = "fisher")
-p_resultFisher <- runTest(p_myGOdata, algorithm = "classic", statistic = "fisher")
-s_resultFisher <- runTest(s_myGOdata, algorithm = "classic", statistic = "fisher")
-```
 #gene enrichment
-
 ```{r}
 x<- lres1[order(lres1$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
 gene_list<-x$log2FoldChange
@@ -1211,15 +1150,16 @@ lgse <- gseGO(geneList=gene_list,
 
 ```
 ```{r}
-tiff(file = 'Liver_gene_enrichment.tiff', units="in", width=7, height=5, res=1000)
+tiff(file = 'gene_enrichment/Liver_6_enrichment.tiff', units="in", width=7, height=5, res=1000)
 dot<-dotplot(lgse, showCategory=10, split=".sign") +
   facet_grid(.~.sign)+
-  ggtitle("Liver Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+  ggtitle("Liver 6 mg/kg Enrichment")+ theme(axis.text.y = element_text(size = 5))    
 
 dot
 dev.off()
 dot
 ```
+
 ```{r}
 x<- lres2[order(lres2$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
 gene_list<-x$log2FoldChange
@@ -1241,10 +1181,10 @@ lgse <- gseGO(geneList=gene_list,
 
 ```
 ```{r}
-tiff(file = 'Liver_gene_enrichment_2.tiff', units="in", width=7, height=5, res=1000)
+tiff(file = 'gene_enrichment/Liver_1_enrichment.tiff', units="in", width=7, height=5, res=1000)
 dot<-dotplot(lgse, showCategory=10, split=".sign") +
   facet_grid(.~.sign)+
-  ggtitle("Liver Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+  ggtitle("Liver 1 mg/kg Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
 
 dot
 dev.off()
@@ -1272,10 +1212,10 @@ lgse <- gseGO(geneList=gene_list,
 
 ```
 ```{r}
-tiff(file = 'Liver_gene_enrichment_3.tiff', units="in", width=7, height=5, res=1000)
+tiff(file = 'gene_enrichment/Liver_0.1_enrichment.tiff', units="in", width=7, height=5, res=1000)
 dot<-dotplot(lgse, showCategory=10, split=".sign") +
   facet_grid(.~.sign)+
-  ggtitle("Liver Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
+  ggtitle("Liver 0.1 Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))    
 
 dot
 dev.off()
