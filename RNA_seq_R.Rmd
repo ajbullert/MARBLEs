@@ -60,6 +60,7 @@ library(ggsignif)
 library(rstatix)
 library(scRNAseq)
 library(VennDiagram)
+library(stringr)
 ```
 
 Set your working directory and pull in your reference genome to compare your samples to. We will read the gene model from an Ensembl GTF file. Be sure your gene model reflects the same model used in your samples. 
@@ -1242,11 +1243,12 @@ sgse <- gseGO(geneList=gene_list,
              OrgDb = org.Mm.eg.db, 
              pAdjustMethod = "none")
 ```
+
 ```{r}
-tiff(file = 'Striatum_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'gene_enrichment/Striatum_6_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
 dot<-dotplot(sgse, showCategory=10, split=".sign") +
   facet_grid(.~.sign)+
-  ggtitle("Striatum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+  ggtitle("Striatum 6 mg/kg Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
 
 dot
 dev.off()
@@ -1273,10 +1275,10 @@ sgse <- gseGO(geneList=gene_list,
              pAdjustMethod = "none")
 ```
 ```{r}
-tiff(file = 'Striatum_gene_enrichment_2.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'gene_enrichment/Striatum_1_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
 dot<-dotplot(sgse, showCategory=10, split=".sign") +
   facet_grid(.~.sign)+
-  ggtitle("Striatum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+  ggtitle("Striatum 1 mg/kg Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
 
 dot
 dev.off()
@@ -1303,10 +1305,10 @@ sgse <- gseGO(geneList=gene_list,
              pAdjustMethod = "none")
 ```
 ```{r}
-tiff(file = 'Striatum_gene_enrichment_3.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'gene_enrichment/Striatum_0.1_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
 dot<-dotplot(sgse, showCategory=10, split=".sign") +
   facet_grid(.~.sign)+
-  ggtitle("Striatum Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+  ggtitle("Striatum 0.1 mg/kg Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
 
 dot
 dev.off()
@@ -1335,10 +1337,10 @@ pgse <- gseGO(geneList=gene_list,
 ```
 
 ```{r}
-tiff(file = 'Prefrontal_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'gene_enrichment/Prefrontal_6_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
 dot<-dotplot(pgse, showCategory=10, split=".sign") +
   facet_grid(.~.sign)+
-  ggtitle("Prefrontal Cortex Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+  ggtitle("Prefrontal Cortex 6 mg/kg Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
 
 dot
 dev.off()
@@ -1366,10 +1368,10 @@ pgse <- gseGO(geneList=gene_list,
 ```
 
 ```{r}
-tiff(file = 'Prefrontal_gene_enrichment_2.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'gene_enrichment/Prefrontal_1_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
 dot<-dotplot(pgse, showCategory=10, split=".sign") +
   facet_grid(.~.sign)+
-  ggtitle("Prefrontal Cortex Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+  ggtitle("Prefrontal Cortex 1 mg/kg Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
 
 dot
 dev.off()
@@ -1398,10 +1400,10 @@ pgse <- gseGO(geneList=gene_list,
 ```
 
 ```{r}
-tiff(file = 'Prefrontal_gene_enrichment_3.tiff', units="in", width=8, height=5, res=1000)
+tiff(file = 'gene_enrichment/Prefrontal_0.1_gene_enrichment.tiff', units="in", width=8, height=5, res=1000)
 dot<-dotplot(pgse, showCategory=10, split=".sign") +
   facet_grid(.~.sign)+
-  ggtitle("Prefrontal Cortex Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
+  ggtitle("Prefrontal Cortex 0.1 mg/kg Gene Enrichment")+ theme(axis.text.y = element_text(size = 5))
 
 dot
 dev.off()
@@ -1430,19 +1432,274 @@ kk2 <- gseKEGG(geneList     = gene_list,
 ```
 
 ```{r}
-dotplot(kk2, showCategory = 10, title = "Liver Enriched Pathways" , split=".sign") + facet_grid(.~.sign)
+tiff(file = 'KEGG_enrichment/Liver_6_KEGG_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(kk2, showCategory=5, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Liver 6 mg/kg KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- lres2[order(lres2$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$entrez
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "mmu"
+kk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+tiff(file = 'KEGG_enrichment/Liver_1_KEGG_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(kk2, showCategory=5, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Liver 1 mg/kg KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- lres3[order(lres3$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$entrez
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "mmu"
+kk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+tiff(file = 'KEGG_enrichment/Liver_0.1_KEGG_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(kk2, showCategory=5, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Liver 0.1 mg/kg KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- pres1[order(pres1$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$entrez
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "mmu"
+kk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+tiff(file = 'KEGG_enrichment/PFC_6_KEGG_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(kk2, showCategory=5, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Prefrontal Cortex 6 mg/kg KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- pres2[order(pres2$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$entrez
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "mmu"
+kk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+tiff(file = 'KEGG_enrichment/PFC_1_KEGG_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(kk2, showCategory=5, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Prefrontal Cortex 1 mg/kg KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- pres3[order(pres3$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$entrez
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "mmu"
+kk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+tiff(file = 'KEGG_enrichment/PFC_0.1_KEGG_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(kk2, showCategory=5, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Prefrontal Cortex 0.1 mg/kg KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- sres1[order(sres1$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$entrez
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "mmu"
+kk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+tiff(file = 'KEGG_enrichment/Striatum_6_KEGG_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(kk2, showCategory=5, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Striatum 6 mg/kg KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- sres2[order(sres2$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$entrez
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "mmu"
+kk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+tiff(file = 'KEGG_enrichment/Striatum_1_KEGG_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(kk2, showCategory=5, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Striatum 1 mg/kg KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
+```
+
+```{r}
+x<- sres3[order(sres3$log2FoldChange, decreasing = TRUE),] #reorder the genes based on significance
+gene_list<-x$log2FoldChange
+names(gene_list)<-x$entrez
+head(gene_list)
+```
+
+
+```{r}
+kegg_organism = "mmu"
+kk2 <- gseKEGG(geneList     = gene_list,
+               organism     = kegg_organism,
+               nPerm        = 10000,
+               minGSSize    = 3,
+               maxGSSize    = 800,
+               pvalueCutoff = 0.05,
+               pAdjustMethod = "none",
+               keyType       = "ncbi-geneid")
+```
+
+```{r}
+tiff(file = 'KEGG_enrichment/Striatum_0.1_KEGG_enrichment.tiff', units="in", width=8, height=5, res=1000)
+dot<-dotplot(kk2, showCategory=5, split=".sign") +
+  facet_grid(.~.sign)+
+  ggtitle("Striatum 0.1 mg/kg KEGG Enrichment")+ theme(axis.text.y = element_text(size = 5))
+
+dot
+dev.off()
+dot
 ```
 
 ```{r}
 # Produce the native KEGG plot (PNG)
-liver_steroid1 <- pathview(gene.data=gene_list, pathway.id="00140", species = kegg_organism)
+#liver_steroid1 <- pathview(gene.data=gene_list, pathway.id="00140", species = kegg_organism)
 
 ```
+
+
+
 #plotting individual genes of interest (Liver)
 Using normalized counts (prebuilt into DESEQ2) which normalizes counts by the estimated size factors (or normalization factors if these were used) and adds a pseudocount of 1/2 to allow for log scale plotting.
-
-
-
 **drug metabolizing enzymes**
 ```{r}
 top_gene<-read.csv("C://Users/agrebinoski/OneDrive - University of Iowa/MARBLES/gene_list_drug_metabolizing_kegg.csv", header = FALSE)
@@ -1450,34 +1707,40 @@ top_gene<-as.character(top_gene$V1)
 
 setdiff(top_gene,rownames(counts(ldds))) #check if all genes of interest can be found in the rownames of the deseq object --> if not you will not be able to run the block of code. Character(0) or integer(0) is a what you want to see
 ```
+```{r}
+head(assays(ldds)[["H"]])
+
+```
+
+
 
 ```{r message=FALSE}
 plot_list<-list()
 for (i in unique(1:length(top_gene))){
   gene <- top_gene[i]
- my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
- b<- plotCounts(ldds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
- stat.test<-aov(count~Treatment, b)%>%
-   tukey_hsd()
+# my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
+b<- plotCounts(ldds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
+# stat.test<-aov(count~Treatment, b)%>%
+#   tukey_hsd()
    z = max(b$count) + (max(b$count)*0.30)
   d <- ggplot(b, aes(factor(Treatment), count))+
-  stat_summary(mapping = aes(x = Treatment, y = count, fill = Treatment), 
-               geom = 'col', fun.y = 'mean', color = 'black')+
+    geom_violin(mapping = aes(x = Treatment, y = count, fill = Treatment))+
     #adding jitter to avoid overplotting
-  geom_point(mapping = aes(x = Treatment, y = count, fill = Treatment), 
-             shape = 21, size = 5, position = position_jitter(width = 0.2, height=0))+ 
+  geom_point(mapping = aes(x = Treatment, y = count, fill = Treatment, shape= Treatment), 
+             size = 5, position = position_jitter(width = 0.3, height=0))+ 
     scale_y_continuous(expand = c(0,0) , limits = c(0,z+z*0.6)) +
   #adding error bars (standard error)
   stat_summary(mapping = aes(x = Treatment, y = count), 
-               geom = 'errorbar', fun.data = 'mean_se', color = 'black',size = 2, width=0)+
-  #after doing the same basic/important stuff as in the plot above, you cn start tweaking the aesthetics
-  scale_fill_brewer(palette = "BuGn", name = NULL, breaks = c("easy","hard"), labels = c("Easy", "Hard"))+ # changes the color palette and makes the legend labels nicer
+               geom = 'crossbar', fun= 'mean', colour = 'black', width=0.2)+
+  scale_fill_manual(values = c("#999900", "#FF9933", "#3399FF", "#9933FF")) +
+  scale_shape_manual(values = c(19, 15, 17, 18)) +
   labs(x = NULL, y = "Normalized counts")+ # changes the y axis label, removes x axis label
   theme_classic(base_size = 20)+# changes the overall style of the plot
-  ggtitle(paste0(lres1$symbol[gene]))+
-  stat_pvalue_manual(
-    stat.test, label = "p.adj", 
-    y.position = c(z,z+z*0.10,z+z*0.20,z+z*0.30,z+z*0.40,z+z*0.50 ))
+  ggtitle(paste0(lres1$symbol[gene]))
+  #+
+#  stat_pvalue_manual(
+#    stat.test, label = "p.adj", 
+#    y.position = c(z,z+z*0.10,z+z*0.20,z+z*0.30,z+z*0.40,z+z*0.50 ))
 
   plot_list[[gene]] <- d
 }
@@ -1488,7 +1751,7 @@ head(plot_list)
 ```{r warning=FALSE}
 # Export into pdf: display multiple plots on the same page
 ggexport(
-  plotlist = plot_list, filename = "Liver_cyp_plot.pdf", 
+  plotlist = plot_list, filename = "gene_plots/Liver_cyp_plot.pdf", 
   ncol = 2, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
 )
 ```
@@ -1506,29 +1769,29 @@ setdiff(top_gene,rownames(counts(sdds))) #check if all genes of interest can be 
 S_plot_list<-list()
 for (i in unique(1:length(top_gene))){
   gene <- top_gene[i]
- my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
- b<- plotCounts(sdds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
- stat.test<-aov(count~Treatment, b)%>%
-   tukey_hsd()
+# my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
+b<- plotCounts(sdds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
+# stat.test<-aov(count~Treatment, b)%>%
+#   tukey_hsd()
    z = max(b$count) + (max(b$count)*0.30)
   d <- ggplot(b, aes(factor(Treatment), count))+
-  stat_summary(mapping = aes(x = Treatment, y = count, fill = Treatment), 
-               geom = 'col', fun.y = 'mean', color = 'black')+
+    geom_violin(mapping = aes(x = Treatment, y = count, fill = Treatment))+
     #adding jitter to avoid overplotting
-  geom_point(mapping = aes(x = Treatment, y = count, fill = Treatment), 
-             shape = 21, size = 5, position = position_jitter(width = 0.2, height=0))+ 
+  geom_point(mapping = aes(x = Treatment, y = count, fill = Treatment, shape= Treatment), 
+             size = 5, position = position_jitter(width = 0.3, height=0))+ 
     scale_y_continuous(expand = c(0,0) , limits = c(0,z+z*0.6)) +
   #adding error bars (standard error)
   stat_summary(mapping = aes(x = Treatment, y = count), 
-               geom = 'errorbar', fun.data = 'mean_se', color = 'black',size = 2, width=0)+
-  #after doing the same basic/important stuff as in the plot above, you cn start tweaking the aesthetics
-  scale_fill_brewer(palette = "BuGn", name = NULL, breaks = c("easy","hard"), labels = c("Easy", "Hard"))+ # changes the color palette and makes the legend labels nicer
+               geom = 'crossbar', fun= 'mean', colour = 'black', width=0.2)+
+  scale_fill_manual(values = c("#999900", "#FF9933", "#3399FF", "#9933FF")) +
+  scale_shape_manual(values = c(19, 15, 17, 18)) +
   labs(x = NULL, y = "Normalized counts")+ # changes the y axis label, removes x axis label
   theme_classic(base_size = 20)+# changes the overall style of the plot
-  ggtitle(paste0(sres1$symbol[gene]))+
-  stat_pvalue_manual(
-    stat.test, label = "p.adj", 
-    y.position = c(z,z+z*0.10,z+z*0.20,z+z*0.30,z+z*0.40,z+z*0.50 ))
+  ggtitle(paste0(lres1$symbol[gene]))
+  #+
+#  stat_pvalue_manual(
+#    stat.test, label = "p.adj", 
+#    y.position = c(z,z+z*0.10,z+z*0.20,z+z*0.30,z+z*0.40,z+z*0.50 ))
 
   S_plot_list[[gene]] <- d
 }
@@ -1539,7 +1802,7 @@ head(S_plot_list)
 ```{r warning=FALSE}
 # Export into pdf: display multiple plots on the same page
 ggexport(
-  plotlist = S_plot_list, filename = "Striatum_cyp_plot.pdf", 
+  plotlist = S_plot_list, filename = "gene_plots/Striatum_cyp_plot.pdf", 
   ncol = 2, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
 )
 ```
@@ -1558,29 +1821,29 @@ setdiff(top_gene,rownames(counts(pdds))) #check if all genes of interest can be 
 p_plot_list<-list()
 for (i in unique(1:length(top_gene))){
   gene <- top_gene[i]
- my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
- b<- plotCounts(pdds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
- #stat.test<-aov(count~Treatment, b)%>%
-   #tukey_hsd()
+# my_comparisons <- list( c("Vehicle", "0.1"), c("0.1","1"), c("1", "6"), c("Vehicle", "1"), c("0.1","6") ,c("Vehicle", "6"))
+b<- plotCounts(pdds, gene = gene, intgroup = "Treatment",normalized = TRUE, returnData = TRUE)
+# stat.test<-aov(count~Treatment, b)%>%
+#   tukey_hsd()
    z = max(b$count) + (max(b$count)*0.30)
   d <- ggplot(b, aes(factor(Treatment), count))+
-  stat_summary(mapping = aes(x = Treatment, y = count, fill = Treatment), 
-               geom = 'col', fun.y = 'mean', color = 'black')+
+    geom_violin(mapping = aes(x = Treatment, y = count, fill = Treatment))+
     #adding jitter to avoid overplotting
-  geom_point(mapping = aes(x = Treatment, y = count, fill = Treatment), 
-             shape = 21, size = 5, position = position_jitter(width = 0.2, height=0))+ 
+  geom_point(mapping = aes(x = Treatment, y = count, fill = Treatment, shape= Treatment), 
+             size = 5, position = position_jitter(width = 0.3, height=0))+ 
     scale_y_continuous(expand = c(0,0) , limits = c(0,z+z*0.6)) +
   #adding error bars (standard error)
   stat_summary(mapping = aes(x = Treatment, y = count), 
-               geom = 'errorbar', fun.data = 'mean_se', color = 'black',size = 2, width=0)+
-  #after doing the same basic/important stuff as in the plot above, you cn start tweaking the aesthetics
-  scale_fill_brewer(palette = "BuGn", name = NULL, breaks = c("easy","hard"), labels = c("Easy", "Hard"))+ # changes the color palette and makes the legend labels nicer
+               geom = 'crossbar', fun= 'mean', colour = 'black', width=0.2)+
+  scale_fill_manual(values = c("#999900", "#FF9933", "#3399FF", "#9933FF")) +
+  scale_shape_manual(values = c(19, 15, 17, 18)) +
   labs(x = NULL, y = "Normalized counts")+ # changes the y axis label, removes x axis label
   theme_classic(base_size = 20)+# changes the overall style of the plot
-  ggtitle(paste0(pres1$symbol[gene]))+
-  stat_pvalue_manual(
-    stat.test, label = "p.adj", 
-    y.position = c(z,z+z*0.10,z+z*0.20,z+z*0.30,z+z*0.40,z+z*0.50 ))
+  ggtitle(paste0(lres1$symbol[gene]))
+  #+
+#  stat_pvalue_manual(
+#    stat.test, label = "p.adj", 
+#    y.position = c(z,z+z*0.10,z+z*0.20,z+z*0.30,z+z*0.40,z+z*0.50 ))
 
   p_plot_list[[gene]] <- d
 }
@@ -1591,7 +1854,7 @@ head(p_plot_list)
 ```{r warning=FALSE}
 # Export into pdf: display multiple plots on the same page
 ggexport(
-  plotlist = p_plot_list, filename = "prefrontal_cyp_plot.pdf", 
+  plotlist = p_plot_list, filename = "gene_plots/prefrontal_cyp_plot.pdf", 
   ncol = 2, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
 )
 ```
@@ -1606,15 +1869,20 @@ cellcluster<-factor(sce.sce$broad_type)
 
 
 ```{r}
-ensembl<-key$ensembl
-ensembl<-make.names(ensembl, unique = TRUE)
-head(ensembl)
-p_se
+p_se1<-p_se
+key<-as.data.frame(pres1$ensembl)
+colnames(key)[1]<-"ensembl"
+key$unique<-make.names(key$ensembl, unique = TRUE)
+
+
 bulk.mtx<-as(p_se1, "ExpressionSet") #my bulk RNA seq data for the mouse brain
 bulk.mtx$Treatment
 table(bulk.mtx$Treatment)
-featureNames(bulk.mtx)<-ensembl
+featureNames(bulk.mtx)
+featureNames(bulk.mtx)<-key$unique
 head(featureNames(bulk.mtx))
+
+
 bulk.control.mtx = exprs(bulk.mtx)[, bulk.mtx$Treatment=='Vehicle']
 bulk.case.mtx = exprs(bulk.mtx)[, bulk.mtx$Treatment=='6']
 ```
