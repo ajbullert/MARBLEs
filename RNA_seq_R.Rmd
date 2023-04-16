@@ -18,8 +18,6 @@ remotes::install_github("renozao/xbioc")
 if (!"MuSiC2" %in% rownames(installed.packages())) {
   devtools::install_github('Jiaxin-Fan/MuSiC2')
 }
-# load
-library(MuSiC2)
 ```
 
 
@@ -39,7 +37,6 @@ library(RMariaDB)
 library(GenomicAlignments)
 library(BiocParallel)
 library(GenomicFeatures)
-library(Rsubread)
 library(DESeq2)
 library(Mus.musculus)
 library(Rsamtools)
@@ -54,7 +51,7 @@ library(enrichplot)
 library(clusterProfiler)
 library(pathview)
 library(readr)
-library(MuSiC)
+library(MuSiC2)
 library(ggpubr)
 library(ggsignif)
 library(rstatix)
@@ -1707,11 +1704,6 @@ top_gene<-as.character(top_gene$V1)
 
 setdiff(top_gene,rownames(counts(ldds))) #check if all genes of interest can be found in the rownames of the deseq object --> if not you will not be able to run the block of code. Character(0) or integer(0) is a what you want to see
 ```
-```{r}
-head(assays(ldds)[["H"]])
-
-```
-
 
 
 ```{r message=FALSE}
@@ -1752,7 +1744,7 @@ head(plot_list)
 # Export into pdf: display multiple plots on the same page
 ggexport(
   plotlist = plot_list, filename = "gene_plots/Liver_cyp_plot.pdf", 
-  ncol = 2, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
+  ncol = 1, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
 )
 ```
 
@@ -1803,7 +1795,7 @@ head(S_plot_list)
 # Export into pdf: display multiple plots on the same page
 ggexport(
   plotlist = S_plot_list, filename = "gene_plots/Striatum_cyp_plot.pdf", 
-  ncol = 2, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
+  ncol = 1, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
 )
 ```
 
@@ -1855,7 +1847,7 @@ head(p_plot_list)
 # Export into pdf: display multiple plots on the same page
 ggexport(
   plotlist = p_plot_list, filename = "gene_plots/prefrontal_cyp_plot.pdf", 
-  ncol = 2, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
+  ncol = 1, nrow = 2, height = 7, width = 7, res = 600,pointsize = 8
 )
 ```
 
@@ -1874,55 +1866,189 @@ key<-as.data.frame(pres1$ensembl)
 colnames(key)[1]<-"ensembl"
 key$unique<-make.names(key$ensembl, unique = TRUE)
 
-
 bulk.mtx<-as(p_se1, "ExpressionSet") #my bulk RNA seq data for the mouse brain
 bulk.mtx$Treatment
 table(bulk.mtx$Treatment)
-featureNames(bulk.mtx)
 featureNames(bulk.mtx)<-key$unique
 head(featureNames(bulk.mtx))
 
 
 bulk.control.mtx = exprs(bulk.mtx)[, bulk.mtx$Treatment=='Vehicle']
-bulk.case.mtx = exprs(bulk.mtx)[, bulk.mtx$Treatment=='6']
+bulk.case.mtx1 = exprs(bulk.mtx)[, bulk.mtx$Treatment=='6']
+bulk.case.mtx2 = exprs(bulk.mtx)[, bulk.mtx$Treatment=='1']
+bulk.case.mtx3 = exprs(bulk.mtx)[, bulk.mtx$Treatment=='0.1']
+
+bulkcase<-cbind(bulk.case.mtx1,bulk.case.mtx2,bulk.case.mtx3)
+
 ```
 
 ```{r}
-Est= music2_prop_t_statistics(bulk.control.mtx = bulk.control.mtx, bulk.case.mtx = bulk.case.mtx, sc.sce = sce.sce, clusters = 'broad_type',samples = 'sample_title', select.ct =c("Astrocyte","Microglia","Oligodendrocyte", "Oligodendrocyte Precursor Cell","GABA-ergic Neuron", "Glutamatergic Neuron", "Endothelial Cell"), sample_prop=0.5,cutoff_c=0.05,cutoff_r=0.01)
+Est_all_groups= music2_prop_t_statistics(bulk.control.mtx = bulk.control.mtx, bulk.case.mtx = bulkcase, sc.sce = sce.sce, clusters = 'broad_type',samples = 'sample_title', select.ct =c("Astrocyte","Microglia","Oligodendrocyte", "Oligodendrocyte Precursor Cell","GABA-ergic Neuron", "Glutamatergic Neuron", "Endothelial Cell"), sample_prop=0.5,cutoff_c=0.05,cutoff_r=0.01)
 ```
 
 ```{r}
-est.prop<- Est$Est.prop
-prop_all$sample_title
+est.prop<- Est_all_groups$Est.prop
 ```
 
 ```{r}
 prop_all = cbind('proportion'=c(est.prop), 'sample_title'=rep(rownames(est.prop),times=ncol(est.prop)), 'broad_type'=rep(colnames(est.prop), each=nrow(est.prop)))
-
+prop_all
 prop_all = as.data.frame(prop_all)
 prop_all$proportion = as.numeric(as.character(prop_all$proportion))
-prop_all$group = ifelse(prop_all$sample_title %in% seq(from=3, to=8, by=1), 'Exposed', 'Vehicle')
-cols <-c("Astrocyte" = "cadetblue2", "Microglia" = "lightsalmon1", "GABA-ergic Neuron" = "palegreen2","Oligodendrocyte" = "goldenrod1", "Oligodendrocyte Precursor Cell"="steelblue3", "Glutamatergic Neuron" = "plum2","Endothelial Cell" = "tan" )
+prop_all$group = ifelse(prop_all$sample_title %in% seq(from=3, to=8, by=1),'6 mg/kg',
+                        ifelse(prop_all$sample_title %in% seq(from=9, to=14, by=1),'1 mg/kg',
+                        ifelse(prop_all$sample_title %in% seq(from=17, to=21, by=1),'0.1 mg/kg','Vehicle')))
+
+#cols <-c("Astrocyte" = "cadetblue2", "Microglia" = "lightsalmon1", "GABA-ergic Neuron" = "palegreen2","Oligodendrocyte" = "goldenrod1", "Oligodendrocyte Precursor Cell"="steelblue3", "Glutamatergic Neuron" = "plum2","Endothelial Cell" = "tan" )
+
+cols <-c("Vehicle" = "#999900", "0.1 mg/kg" = "#FF9933", "1 mg/kg" = "#3399FF","6 mg/kg" = "#9933FF")
 ```
 
 ```{r}
-ggplot(prop_all, aes(x=broad_type, y=proportion, color=broad_type)) + xlab('')+
-  geom_jitter(width=0.25,alpha=0.8)+ylab('Cell Type Proportions')+theme_bw()+
+prop_all$proportion[81]<-NA
+stat.test<-aov(proportion~group+broad_type+group*broad_type, prop_all)
+tukey_hsd(cell_anova)
+
+stat.test
+prop_all$log_proportion<-log(prop_all$proportion)
+
+cell_model<-lm(log_proportion~group+broad_type+group:broad_type, prop_all)
+plot(cell_model, which=2)
+cell_anova<-aov(cell_model)
+
+sum<-tukey_hsd(cell_anova, which = "group:broad_type")
+sum
+
+
+```
+
+
+
+
+```{r}
+tiff(file = 'single_cell_plot/prefrontal_cortex_single_cell.tiff', units="in", width=15, height=3, res=1000)
+
+
+scplot<- ggplot(prop_all, aes(x=group, y=log(proportion))) + xlab('')+
+  ylab('Log of Cell Type Proportions')+
+  theme_bw()+
+  geom_violin(mapping = aes(x = group, y = log(proportion), fill = group))+
+  geom_point(mapping = aes(x = group, y = log(proportion), shape= group), 
+             size = 2, position = position_jitter(width = 0.3, height=0))+
+  scale_shape_manual(values = c(19, 15, 17, 18))+
   stat_summary(fun = median,
                geom = "crossbar", width = 0.3,size=0.1,color='gray36')+
-  facet_grid(.~group)+
   theme(plot.title = element_text(hjust = 0.5, size=12),
-        axis.text.x = element_text(size=12,angle = 45,hjust=1),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
         axis.text.y = element_text(size=12),
         axis.title.x = element_text(size=12),
         axis.title.y = element_text(size=12),
         axis.line = element_line(colour = "black"),
-        strip.text.x = element_text(size = 12),
+        strip.text.x = element_text(size = 8),
         panel.grid.major = element_blank(),
         panel.grid.minor = element_blank(),
-        panel.border = element_blank(),
+        panel.border =,
         panel.background = element_blank(),
-        legend.position = 'none')+
-  scale_color_manual(values=cols)
+        legend.position = 'right')+
+  scale_fill_manual(values = c("#999900", "#FF9933", "#3399FF", "#9933FF"))+ 
+  facet_grid(.~broad_type)
+
+scplot
+
+dev.off()
+
+scplot
 ```
 
+```{r}
+s_se1<-s_se
+key<-as.data.frame(sres1$ensembl)
+colnames(key)[1]<-"ensembl"
+key$unique<-make.names(key$ensembl, unique = TRUE)
+
+bulk.mtx<-as(s_se1, "ExpressionSet") #my bulk RNA seq data for the mouse brain
+bulk.mtx$Treatment
+table(bulk.mtx$Treatment)
+featureNames(bulk.mtx)<-key$unique
+head(featureNames(bulk.mtx))
+
+
+bulk.control.mtx = exprs(bulk.mtx)[, bulk.mtx$Treatment=='Vehicle']
+bulk.case.mtx1 = exprs(bulk.mtx)[, bulk.mtx$Treatment=='6']
+bulk.case.mtx2 = exprs(bulk.mtx)[, bulk.mtx$Treatment=='1']
+bulk.case.mtx3 = exprs(bulk.mtx)[, bulk.mtx$Treatment=='0.1']
+
+bulkcase<-cbind(bulk.case.mtx1,bulk.case.mtx2,bulk.case.mtx3)
+
+```
+
+```{r}
+Est_all_groups_stn= music2_prop_t_statistics(bulk.control.mtx = bulk.control.mtx, bulk.case.mtx = bulkcase, sc.sce = sce.sce, clusters = 'broad_type',samples = 'sample_title', select.ct =c("Astrocyte","Microglia","Oligodendrocyte", "Oligodendrocyte Precursor Cell","GABA-ergic Neuron", "Glutamatergic Neuron", "Endothelial Cell"), sample_prop=0.5,cutoff_c=0.05,cutoff_r=0.01)
+```
+
+```{r}
+est.prop<- Est_all_groups_stn$Est.prop
+```
+
+```{r}
+prop_all = cbind('proportion'=c(est.prop), 'sample_title'=rep(rownames(est.prop),times=ncol(est.prop)), 'broad_type'=rep(colnames(est.prop), each=nrow(est.prop)))
+prop_all
+prop_all = as.data.frame(prop_all)
+prop_all$proportion = as.numeric(as.character(prop_all$proportion))
+prop_all$group = ifelse(prop_all$sample_title %in% seq(from=3, to=8, by=1),'6 mg/kg',
+                        ifelse(prop_all$sample_title %in% seq(from=9, to=14, by=1),'1 mg/kg',
+                        ifelse(prop_all$sample_title %in% seq(from=17, to=21, by=1),'0.1 mg/kg','Vehicle')))
+
+#cols <-c("Astrocyte" = "cadetblue2", "Microglia" = "lightsalmon1", "GABA-ergic Neuron" = "palegreen2","Oligodendrocyte" = "goldenrod1", "Oligodendrocyte Precursor Cell"="steelblue3", "Glutamatergic Neuron" = "plum2","Endothelial Cell" = "tan" )
+
+cols <-c("Vehicle" = "#999900", "0.1 mg/kg" = "#FF9933", "1 mg/kg" = "#3399FF","6 mg/kg" = "#9933FF")
+```
+
+```{r}
+prop_all$log_proportion<-log(prop_all$proportion)
+
+cell_model<-lm(log_proportion~group+broad_type+group:broad_type, prop_all)
+plot(cell_model, which=2)
+cell_anova<-aov(cell_model)
+
+tukey_hsd(cell_anova, which = "group:broad_type")
+
+```
+
+
+```{r}
+tiff(file = 'single_cell_plot/Striatum_single_cell.tiff', units="in", width=15, height=3, res=1000)
+
+
+scplot<- ggplot(prop_all, aes(x=group, y=log(proportion))) + xlab('')+
+  ylab('Log of Cell Type Proportions')+
+  theme_bw()+
+  geom_violin(mapping = aes(x = group, y = log(proportion), fill = group))+
+  geom_point(mapping = aes(x = group, y = log(proportion), shape= group), 
+             size = 2, position = position_jitter(width = 0.3, height=0))+
+  scale_shape_manual(values = c(19, 15, 17, 18))+
+  stat_summary(fun = median,
+               geom = "crossbar", width = 0.3,size=0.1,color='gray36')+
+  theme(plot.title = element_text(hjust = 0.5, size=12),
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        axis.text.y = element_text(size=12),
+        axis.title.x = element_text(size=12),
+        axis.title.y = element_text(size=12),
+        axis.line = element_line(colour = "black"),
+        strip.text.x = element_text(size = 8),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.border =,
+        panel.background = element_blank(),
+        legend.position = 'right')+
+  scale_fill_manual(values = c("#999900", "#FF9933", "#3399FF", "#9933FF"))+ 
+  facet_grid(.~broad_type)
+
+scplot
+
+dev.off()
+
+scplot
+```
